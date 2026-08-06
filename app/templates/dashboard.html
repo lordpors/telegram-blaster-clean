@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — MAMI GROUP{% endblock %}
+{% block content %}
+<div class="flex-between" style="margin-bottom:20px;">
+  <div>
+    <h2 style="font-size:1.45rem;">Dashboard Pengiriman</h2>
+    <p class="muted small" style="margin-top:5px;">Setiap akun memiliki antrean sendiri; job dari beberapa tab tidak lagi mengganti akun secara global.</p>
+  </div>
+  <a href="/connect-telegram" class="btn btn-primary">Tambah Akun</a>
+</div>
+
+{% if error == 'account_busy' %}
+<div class="alert alert-error">Akun belum dapat dihapus karena masih memiliki penerima berstatus menunggu atau sedang dikirim.</div>
+{% endif %}
+
+<div class="card">
+  <div class="flex-between" style="margin-bottom:14px;">
+    <div class="card-title" style="margin:0;">Total berhasil terkirim</div>
+    <span class="badge {% if running_jobs %}badge-orange{% else %}badge-green{% endif %}">{{ running_jobs }} job aktif</span>
+  </div>
+  <div class="stats-grid">
+    {% for item in history_counts %}
+    <div class="stat">
+      <div class="stat-label">{{ item.label }}</div>
+      <div class="stat-value">{{ item.count }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- ─── AKUN TERHUBUNG ─────────────────────────────────────────────────── -->
+<div class="card">
+  <div class="flex-between" style="margin-bottom:14px;">
+    <div class="card-title" style="margin:0;">Akun Telegram Terhubung</div>
+    <div id="accounts-controls" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+  </div>
+  {% if accounts %}
+  <div class="table-wrap">
+    <table id="accounts-table">
+      <thead><tr><th>Label / Nomor</th><th>Status</th><th>Ditambahkan</th><th style="text-align:right;">Aksi</th></tr></thead>
+      <tbody>
+      {% for acc in accounts %}
+        <tr>
+          <td><strong>{{ acc.label or acc.phone }}</strong><div class="muted small">{{ acc.phone }}</div></td>
+          <td><span class="badge badge-green">● Terhubung</span></td>
+          <td class="muted small">{{ acc.created_at.strftime('%d %b %Y %H:%M') if acc.created_at else '—' }}</td>
+          <td>
+            <div class="flex" style="justify-content:flex-end;">
+              <a href="/blast?account_id={{ acc.id }}" class="btn btn-outline" style="padding:7px 12px;font-size:.8rem;">Pakai</a>
+              <form method="post" action="/delete-account/{{ acc.id }}" style="margin:0;" onsubmit="return confirm('Hapus akun {{ acc.phone }}? Session akan dihapus permanen.')">
+                <button class="btn btn-danger" style="padding:7px 12px;font-size:.8rem;">🗑</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="alert alert-warn">Belum ada akun. <a class="inline-link" href="/connect-telegram">Hubungkan akun Telegram</a> terlebih dahulu.</div>
+  {% endif %}
+</div>
+
+<!-- ─── RIWAYAT JOB ────────────────────────────────────────────────────── -->
+<div class="card">
+  <div class="flex-between" style="margin-bottom:14px;">
+    <div class="card-title" style="margin:0;">Riwayat Job Terbaru</div>
+    <div id="jobs-controls" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+  </div>
+  {% if recent_jobs %}
+  <div class="table-wrap">
+    <table id="jobs-table">
+      <thead><tr><th>Job</th><th>Dibuat</th><th>Status</th><th>Terkirim</th><th>Gagal</th><th>Dilewati</th></tr></thead>
+      <tbody>
+      {% for job in recent_jobs %}
+        <tr>
+          <td><a class="inline-link" href="/blast?job_id={{ job.id }}">#{{ job.id }}</a></td>
+          <td class="muted small">{{ job.created_at.strftime('%d %b %Y %H:%M:%S') if job.created_at else '—' }}</td>
+          <td>
+            {% if job.status == 'running' %}<span class="badge badge-orange">Sedang berjalan</span>
+            {% elif job.status == 'queued' %}<span class="badge badge-blue">Menunggu</span>
+            {% elif job.status == 'completed' %}<span class="badge badge-green">Selesai</span>
+            {% elif job.status == 'partial' %}<span class="badge badge-purple">Selesai sebagian</span>
+            {% else %}<span class="badge badge-red">Gagal</span>{% endif %}
+          </td>
+          <td><strong style="color:#86efac;">{{ job.sent_count }}</strong> / {{ job.total_count }}</td>
+          <td style="color:#fca5a5;">{{ job.failed_count }}</td>
+          <td class="muted">{{ job.skipped_count }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<p class="muted">Belum ada riwayat pengiriman.</p>{% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  const PAGE = 6;
+
+  function initPagination(tableId, controlsId, labelSingle) {
+    const table  = document.getElementById(tableId);
+    const ctrl   = document.getElementById(controlsId);
+    if (!table || !ctrl) return;
+
+    const rows = Array.from(table.querySelectorAll('tbody tr'));
+    if (rows.length <= PAGE) return; // ≤6 baris: tidak perlu tombol
+
+    let visible = PAGE;
+
+    // Sembunyikan baris di luar halaman pertama
+    rows.forEach((r, i) => { r.style.display = i < PAGE ? '' : 'none'; });
+
+    function refresh() {
+      rows.forEach((r, i) => { r.style.display = i < visible ? '' : 'none'; });
+      const allShown = visible >= rows.length;
+      btnMore.style.display = allShown ? 'none' : 'inline-flex';
+      btnAll.style.display  = allShown ? 'none' : 'inline-flex';
+      btnHide.style.display = allShown ? 'inline-flex' : 'none';
+    }
+
+    const btnMore = document.createElement('button');
+    btnMore.className = 'btn btn-outline';
+    btnMore.style.fontSize = '.8rem';
+    btnMore.textContent = `Lihat ${labelSingle} lainnya`;
+    btnMore.onclick = () => { visible = Math.min(visible + PAGE, rows.length); refresh(); };
+
+    const btnAll = document.createElement('button');
+    btnAll.className = 'btn btn-outline';
+    btnAll.style.fontSize = '.8rem';
+    btnAll.textContent = `Lihat semua ${labelSingle}`;
+    btnAll.onclick = () => { visible = rows.length; refresh(); };
+
+    const btnHide = document.createElement('button');
+    btnHide.className = 'btn btn-gray';
+    btnHide.style.fontSize = '.8rem';
+    btnHide.style.display = 'none';
+    btnHide.textContent = `Sembunyikan semua ${labelSingle}`;
+    btnHide.onclick = () => { visible = PAGE; refresh(); };
+
+    ctrl.appendChild(btnMore);
+    ctrl.appendChild(btnAll);
+    ctrl.appendChild(btnHide);
+  }
+
+  initPagination('accounts-table', 'accounts-controls', 'akun');
+  initPagination('jobs-table',     'jobs-controls',     'job');
+})();
+</script>
+{% endblock %}

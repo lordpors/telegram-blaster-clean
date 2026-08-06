@@ -1,0 +1,11 @@
+{
+  "name": "wa-scraper-service",
+  "version": "1.0.0",
+  "main": "wa_scraper.js",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.18",
+    "@hapi/boom": "^10.0.1",
+    "pino": "^8.21.0",
+    "qrcode": "^1.5.3"
+  }
+}

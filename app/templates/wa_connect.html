@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Hubungkan WA — MAMI GROUP{% endblock %}
+{% block content %}
+
+<div class="flex-between" style="margin-bottom:22px">
+  <h2 style="font-size:1.35rem;font-weight:800">Hubungkan Akun WhatsApp</h2>
+  <a href="/wa" class="btn btn-gray">Kembali</a>
+</div>
+
+{% if not job_id %}
+<div class="card">
+  <div class="card-title">Login dengan QR Code</div>
+  <div class="alert alert-info" style="margin-bottom:20px">
+    Scan QR dengan WhatsApp di HP kamu:<br>
+    Setelan → Perangkat Tertaut → Tautkan Perangkat
+  </div>
+  <form method="post" action="/wa/connect/start" id="connectForm">
+    <div class="field">
+      <label>Label Akun (opsional)</label>
+      <input type="text" name="label" placeholder="contoh: Akun Utama WA" style="max-width:400px">
+    </div>
+    <button type="submit" class="btn btn-primary" id="startBtn">Tampilkan QR Code</button>
+  </form>
+</div>
+{% endif %}
+
+{% if job_id %}
+<div class="card" id="statusCard">
+  <div class="flex-between" style="margin-bottom:16px">
+    <div class="card-title" style="margin:0">Status Koneksi</div>
+    <span class="badge badge-orange" id="statusBadge">Menghubungkan...</span>
+  </div>
+
+  <!-- QR -->
+  <div id="qrSection" style="display:none;text-align:center;margin-bottom:20px">
+    <p class="muted small" style="margin-bottom:14px">Buka WhatsApp → Setelan → Perangkat Tertaut → Tautkan Perangkat → Scan</p>
+    <div id="qrBox" style="display:inline-block;background:#fff;padding:16px;border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.4)"></div>
+    <p class="muted small" style="margin-top:12px">QR berlaku ~60 detik, otomatis refresh jika expired</p>
+  </div>
+
+  <!-- Log -->
+  <div id="logBox"
+       style="background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.07);border-radius:10px;
+              padding:14px 16px;font-family:monospace;font-size:.8rem;color:#c8c8d8;
+              max-height:200px;overflow-y:auto;line-height:1.75;margin-bottom:18px">
+    Memulai...
+  </div>
+
+  <!-- Berhasil -->
+  <div id="successSection" style="display:none">
+    <div class="alert alert-success" style="margin-bottom:14px">
+      Akun <strong id="phoneDisplay"></strong> berhasil dihubungkan!
+    </div>
+    <form method="post" action="/wa/connect/save/{{ job_id }}">
+      <button type="submit" class="btn btn-primary">Simpan Akun & Lanjut</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+{% if job_id %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+const JOB_ID  = "{{ job_id }}";
+let done      = false;
+let lastLog   = 0;
+let lastQr    = null;
+
+function renderQR(qrStr) {
+  if (qrStr === lastQr) return;
+  lastQr = qrStr;
+  const box = document.getElementById('qrBox');
+  box.innerHTML = '';
+  new QRCode(box, { text: qrStr, width: 240, height: 240,
+    colorDark: '#000', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.M });
+}
+
+async function poll() {
+  if (done) return;
+  try {
+    const res = await fetch(`/api/wa/connect/${JOB_ID}`, { cache: 'no-store' });
+    if (!res.ok) { setTimeout(poll, 3000); return; }
+    const d = await res.json();
+
+    const lines = d.log || [];
+    if (lines.length !== lastLog) {
+      const box = document.getElementById('logBox');
+      box.innerHTML = lines.map(l => l.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')).join('<br>');
+      box.scrollTop = box.scrollHeight;
+      lastLog = lines.length;
+    }
+
+    const badge = document.getElementById('statusBadge');
+
+    if (d.status === 'waiting_scan' && d.qr) {
+      badge.className   = 'badge badge-orange';
+      badge.textContent = 'Menunggu scan QR';
+      document.getElementById('qrSection').style.display = 'block';
+      renderQR(d.qr);
+    }
+
+    if (d.status === 'connected') {
+      done = true;
+      badge.className   = 'badge badge-green';
+      badge.textContent = 'Terhubung';
+      document.getElementById('qrSection').style.display   = 'none';
+      document.getElementById('successSection').style.display = 'block';
+      document.getElementById('phoneDisplay').textContent  = d.phone || '';
+    }
+
+    if (d.status === 'error') {
+      done = true;
+      badge.className   = 'badge badge-red';
+      badge.textContent = 'Error';
+    }
+
+  } catch(e) {}
+  if (!done) setTimeout(poll, 2000);
+}
+
+document.getElementById('connectForm')?.addEventListener('submit', () => {
+  const btn = document.getElementById('startBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Memulai...'; }
+});
+
+poll();
+</script>
+{% endif %}
+{% endblock %}

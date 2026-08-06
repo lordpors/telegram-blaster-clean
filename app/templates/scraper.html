@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}Scraper — MAMI GROUP{% endblock %}
+{% block content %}
+
+<div class="flex-between" style="margin-bottom:22px">
+  <h2 style="font-size:1.35rem;font-weight:800">Group Member Scraper</h2>
+  <span class="badge badge-purple">Pakai session akun yang sudah terhubung</span>
+</div>
+
+{% if error_message %}
+<div class="alert alert-error">{{ error_message }}</div>
+{% endif %}
+
+{% if not accounts %}
+<div class="alert alert-warn">
+  Belum ada akun Telegram terhubung. 
+  <a href="/connect-telegram" class="inline-link">Hubungkan akun dulu</a>
+</div>
+{% else %}
+
+<!-- ─── FORM PILIH AKUN ───────────────────────────────────────────── -->
+<div class="card">
+  <div class="card-title">⚙️ Konfigurasi Scraper</div>
+  <form method="post" action="/scraper/start" id="scrapeForm">
+    <div class="field">
+      <label>Pilih Akun Telegram</label>
+      <select name="account_id" required style="max-width:400px">
+        {% for acc in accounts %}
+        <option value="{{ acc.id }}"
+          {% if selected_account_id and selected_account_id == acc.id %}selected{% endif %}>
+          {{ acc.label or acc.phone }}
+        </option>
+        {% endfor %}
+      </select>
+      <div class="small muted" style="margin-top:6px">
+        Scraper akan login pakai session akun ini — tidak perlu OTP ulang.
+      </div>
+    </div>
+
+    <div class="alert alert-info" style="margin-bottom:18px">
+      Script akan otomatis mendeteksi semua group yang diikuti akun ini,
+      lalu mengumpulkan <strong>@username</strong> dan nomor member.
+      Hasil bisa di-download sebagai file <code>.txt</code>.
+    </div>
+
+    <button type="submit" class="btn btn-primary" id="startBtn">
+      Mulai Scraping
+    </button>
+  </form>
+</div>
+
+{% endif %}
+
+<!-- ─── PROGRESS CARD (tampil setelah form di-submit) ───────────────── -->
+{% if job_id %}
+<div class="card" id="progressCard">
+  <div class="flex-between" style="margin-bottom:16px">
+    <div class="card-title" style="margin:0">Progress Scraping</div>
+    <span class="badge badge-orange" id="statusBadge">Berjalan...</span>
+  </div>
+
+  <!-- Counter -->
+  <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:14px">
+    <span id="totalCount" style="font-size:2rem;font-weight:900;color:#a78bfa">0</span>
+    <span class="muted">kontak unik ditemukan</span>
+  </div>
+
+  <!-- Progress bar animasi -->
+  <div class="progress" style="margin-bottom:18px">
+    <div id="progressBar" style="width:100%;animation:scrape-pulse 1.4s ease-in-out infinite"></div>
+  </div>
+
+  <!-- Log box -->
+  <label>Log</label>
+  <div id="logBox"
+       style="background:#0a0a0f;border:1px solid #343444;border-radius:10px;
+              padding:14px 16px;font-family:'Courier New',monospace;font-size:.8rem;
+              color:#c8c8d8;max-height:280px;overflow-y:auto;line-height:1.75;
+              white-space:pre-wrap;word-break:break-word">
+    ⏳ Menginisialisasi...
+  </div>
+
+  <!-- Tombol download — muncul setelah selesai -->
+  <div id="downloadSection" style="display:none;margin-top:18px">
+    <div class="flex-between">
+      <div>
+        <a href="/scraper/download/{{ job_id }}"
+           class="btn btn-success" download>
+          Download Kontak (.txt)
+        </a>
+        <span class="small muted" style="margin-left:12px">
+          Kontak tersimpan sampai server restart
+        </span>
+      </div>
+      <a href="/scraper" class="btn btn-outline">Scraping Baru</a>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<style>
+@keyframes scrape-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: .45; }
+}
+</style>
+
+{% endblock %}
+
+{% block extra_js %}
+{% if job_id %}
+<script>
+const JOB_ID = "{{ job_id }}";
+let done    = false;
+let lastLog = 0;
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+async function poll() {
+  if (done) return;
+  try {
+    const res = await fetch(`/api/scraper/${JOB_ID}`);
+    if (!res.ok) { setTimeout(poll, 3000); return; }
+    const d = await res.json();
+
+    // Update counter
+    document.getElementById("totalCount").textContent = d.total || 0;
+
+    // Update log (append-only agar tidak flicker)
+    const logBox = document.getElementById("logBox");
+    const lines  = d.log || [];
+    if (lines.length !== lastLog) {
+      logBox.innerHTML = lines.map(l => esc(l)).join("\n");
+      logBox.scrollTop = logBox.scrollHeight;
+      lastLog = lines.length;
+    }
+
+    if (d.status === "done") {
+      done = true;
+      const badge = document.getElementById("statusBadge");
+      badge.className   = "badge badge-green";
+      badge.textContent = "✅ Selesai";
+      const bar = document.getElementById("progressBar");
+      bar.style.animation = "none";
+      bar.style.width     = "100%";
+      bar.style.background = "var(--green)";
+      document.getElementById("downloadSection").style.display = "block";
+
+    } else if (d.status === "error") {
+      done = true;
+      const badge = document.getElementById("statusBadge");
+      badge.className   = "badge badge-red";
+      badge.textContent = "❌ Error";
+      const bar = document.getElementById("progressBar");
+      bar.style.animation = "none";
+      bar.style.background = "var(--red)";
+
+    } else {
+      setTimeout(poll, 2000);
+    }
+  } catch (e) {
+    setTimeout(poll, 3000);
+  }
+}
+
+// Disable tombol saat submit
+document.getElementById("scrapeForm").addEventListener("submit", function () {
+  const btn = document.getElementById("startBtn");
+  btn.disabled     = true;
+  btn.textContent  = "⏳ Memulai...";
+});
+
+// Mulai polling
+poll();
+</script>
+{% endif %}
+{% endblock %}

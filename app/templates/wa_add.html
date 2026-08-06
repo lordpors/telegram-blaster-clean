@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+{% block title %}Tambah Member WA — MAMI GROUP{% endblock %}
+{% block content %}
+
+<div class="flex-between" style="margin-bottom:22px">
+  <div>
+    <h2 style="font-size:1.35rem;font-weight:800">Tambah Member ke Group</h2>
+    <p class="muted small" style="margin-top:5px">Masukkan nomor WA lalu pilih group tujuan</p>
+  </div>
+  <a href="/wa" class="btn btn-gray">Kembali</a>
+</div>
+
+<!-- ── FORM ────────────────────────────────────────────────────────────── -->
+<div class="card" id="formCard">
+  <div class="card-title">Konfigurasi</div>
+
+  <!-- Pilih akun -->
+  <div class="field">
+    <label>Akun WA</label>
+    <select id="accountSelect" style="max-width:400px" onchange="loadGroups()">
+      <option value="">-- Pilih akun --</option>
+      {% for acc in accounts %}
+      <option value="{{ acc.id }}" {% if selected_id == acc.id %}selected{% endif %}>
+        {{ acc.label or acc.phone }} ({{ acc.phone }})
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <!-- Muat group -->
+  <div class="field">
+    <label>Group Tujuan</label>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <select id="groupSelect" style="max-width:400px" disabled>
+        <option value="">-- Pilih akun dulu --</option>
+      </select>
+      <button class="btn btn-outline" id="loadGroupBtn" onclick="loadGroups()" disabled
+              style="font-size:.82rem;padding:8px 14px">
+        Muat Group
+      </button>
+      <span class="muted small" id="groupStatus"></span>
+    </div>
+  </div>
+
+  <!-- Input nomor -->
+  <div class="field">
+    <label>Nomor WA Penerima <span class="label-note">satu per baris, format +628xxx atau 08xxx</span></label>
+    <textarea id="numbersInput" rows="8"
+              placeholder="+6281234567890&#10;+6285678901234&#10;08123456789"></textarea>
+    <div class="small muted" style="margin-top:6px">
+      Format bebas: +62, 62, 08 — otomatis dikonversi. Duplikat dibuang.
+    </div>
+  </div>
+
+  <button class="btn btn-primary btn-block" id="addBtn" onclick="startAdd()" disabled>
+    Mulai Tambah Member
+  </button>
+</div>
+
+<!-- ── PROGRESS ───────────────────────────────────────────────────────── -->
+<div class="card" id="progressCard" style="display:none">
+  <div class="flex-between" style="margin-bottom:16px">
+    <div class="card-title" style="margin:0">Progress</div>
+    <span class="badge badge-orange" id="progBadge">Berjalan...</span>
+  </div>
+
+  <div style="display:flex;gap:24px;margin-bottom:16px;flex-wrap:wrap">
+    <div>
+      <div class="stat-label">Total</div>
+      <div class="stat-value" id="totalCount">0</div>
+    </div>
+    <div>
+      <div class="stat-label" style="color:#6ee7b7">Berhasil</div>
+      <div class="stat-value" id="addedCount" style="color:#6ee7b7">0</div>
+    </div>
+    <div>
+      <div class="stat-label" style="color:#fca5a5">Gagal</div>
+      <div class="stat-value" id="failedCount" style="color:#fca5a5">0</div>
+    </div>
+  </div>
+
+  <div class="progress" style="margin-bottom:16px">
+    <div id="progBar" style="width:0"></div>
+  </div>
+
+  <div id="logBox2"
+       style="background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.07);border-radius:10px;
+              padding:14px;font-family:monospace;font-size:.8rem;color:#c8c8d8;
+              max-height:220px;overflow-y:auto;line-height:1.75;margin-bottom:16px">
+    Memulai...
+  </div>
+
+  <div class="table-wrap" id="resultsTable" style="display:none">
+    <table>
+      <thead><tr><th>Nomor</th><th>Status</th></tr></thead>
+      <tbody id="resultsBody"></tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let groupJobId = null;
+let addJobId   = null;
+let addDone    = false;
+
+// ── Muat group dari akun terpilih ────────────────────────────────────────────
+async function loadGroups() {
+  const accId = document.getElementById('accountSelect').value;
+  if (!accId) return;
+
+  const btn = document.getElementById('loadGroupBtn');
+  const sel = document.getElementById('groupSelect');
+  const st  = document.getElementById('groupStatus');
+
+  btn.disabled = true;
+  btn.textContent = 'Memuat...';
+  st.textContent  = '';
+  sel.innerHTML   = '<option value="">Memuat group...</option>';
+  sel.disabled    = true;
+
+  try {
+    const res = await fetch('/api/wa/groups/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ account_id: parseInt(accId) }),
+    });
+    const d = await res.json();
+    if (d.error) { st.textContent = d.error; btn.disabled = false; btn.textContent = 'Muat Group'; return; }
+    groupJobId = d.job_id;
+    pollGroups();
+  } catch(e) {
+    st.textContent = 'Gagal: ' + e.message;
+    btn.disabled = false; btn.textContent = 'Muat Group';
+  }
+}
+
+async function pollGroups() {
+  if (!groupJobId) return;
+  try {
+    const res = await fetch(`/api/wa/poll/${groupJobId}`, { cache: 'no-store' });
+    const d   = await res.json();
+    const sel = document.getElementById('groupSelect');
+    const btn = document.getElementById('loadGroupBtn');
+    const st  = document.getElementById('groupStatus');
+
+    if (d.status === 'done' && d.groups && d.groups.length) {
+      sel.innerHTML = '<option value="">-- Pilih group --</option>' +
+        d.groups.map(g => `<option value="${esc(g.id)}">${esc(g.name)} (${g.count} member)</option>`).join('');
+      sel.disabled      = false;
+      btn.disabled      = false;
+      btn.textContent   = 'Muat Ulang';
+      st.textContent    = `${d.groups.length} group ditemukan`;
+      document.getElementById('addBtn').disabled = false;
+    } else if (d.status === 'error') {
+      st.textContent  = d.log?.slice(-1)[0] || 'Error';
+      btn.disabled    = false;
+      btn.textContent = 'Coba Lagi';
+    } else {
+      setTimeout(pollGroups, 2000);
+    }
+  } catch(e) { setTimeout(pollGroups, 3000); }
+}
+
+// ── Mulai tambah member ───────────────────────────────────────────────────────
+async function startAdd() {
+  const accId   = document.getElementById('accountSelect').value;
+  const groupId = document.getElementById('groupSelect').value;
+  const rawNums = document.getElementById('numbersInput').value;
+
+  if (!accId || !groupId) { alert('Pilih akun dan group dulu'); return; }
+  if (!rawNums.trim())     { alert('Masukkan minimal 1 nomor'); return; }
+
+  // Normalisasi nomor
+  const numbers = [...new Set(
+    rawNums.split('\n')
+      .map(n => n.trim().replace(/\D/g, ''))
+      .filter(n => n.length >= 8)
+      .map(n => n.startsWith('0') ? '62' + n.slice(1) : n)
+      .map(n => n.startsWith('62') ? n : '62' + n)
+  )];
+
+  if (!numbers.length) { alert('Tidak ada nomor valid'); return; }
+
+  document.getElementById('addBtn').disabled       = true;
+  document.getElementById('progressCard').style.display = 'block';
+  document.getElementById('totalCount').textContent = numbers.length;
+  addDone = false;
+
+  try {
+    const res = await fetch('/api/wa/add/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ account_id: parseInt(accId), group_id: groupId, numbers }),
+    });
+    const d = await res.json();
+    if (d.error) { alert(d.error); document.getElementById('addBtn').disabled = false; return; }
+    addJobId = d.job_id;
+    pollAdd();
+  } catch(e) {
+    alert('Error: ' + e.message);
+    document.getElementById('addBtn').disabled = false;
+  }
+}
+
+async function pollAdd() {
+  if (!addJobId || addDone) return;
+  try {
+    const res = await fetch(`/api/wa/poll/${addJobId}`, { cache: 'no-store' });
+    const d   = await res.json();
+
+    document.getElementById('addedCount').textContent  = d.added  || 0;
+    document.getElementById('failedCount').textContent = d.failed || 0;
+    document.getElementById('totalCount').textContent  = d.total  || 0;
+
+    const pct = d.total ? Math.round(((d.added + d.failed) / d.total) * 100) : 0;
+    document.getElementById('progBar').style.width = pct + '%';
+
+    const lines = d.log || [];
+    const logBox = document.getElementById('logBox2');
+    logBox.innerHTML = lines.map(l => esc(l)).join('<br>');
+    logBox.scrollTop = logBox.scrollHeight;
+
+    // Tabel hasil
+    if (d.results && d.results.length) {
+      document.getElementById('resultsTable').style.display = 'block';
+      document.getElementById('resultsBody').innerHTML = d.results.map(r => {
+        const cls = r.status === 'added' ? 'badge-green' : r.status === 'already_member' ? 'badge-gray' : 'badge-red';
+        const label = r.status === 'added' ? 'Berhasil' : r.status === 'already_member' ? 'Sudah member' : r.status === 'privacy' ? 'Privasi' : r.status;
+        return `<tr><td><code>${esc(r.number)}</code></td><td><span class="badge ${cls}">${label}</span></td></tr>`;
+      }).join('');
+    }
+
+    if (d.status === 'done') {
+      addDone = true;
+      const badge = document.getElementById('progBadge');
+      badge.className   = 'badge badge-green';
+      badge.textContent = 'Selesai';
+      document.getElementById('addBtn').disabled = false;
+    } else if (d.status === 'error') {
+      addDone = true;
+      const badge = document.getElementById('progBadge');
+      badge.className   = 'badge badge-red';
+      badge.textContent = 'Error';
+      document.getElementById('addBtn').disabled = false;
+    } else {
+      setTimeout(pollAdd, 2000);
+    }
+  } catch(e) { setTimeout(pollAdd, 3000); }
+}
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Auto-load groups jika account sudah dipilih (dari link /wa/add?account_id=...)
+window.addEventListener('load', () => {
+  const sel = document.getElementById('accountSelect');
+  if (sel.value) loadGroups();
+  document.getElementById('loadGroupBtn').disabled = !sel.value;
+  sel.addEventListener('change', () => {
+    document.getElementById('loadGroupBtn').disabled = !sel.value;
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,1 @@
+"""Telegram Blaster application package."""

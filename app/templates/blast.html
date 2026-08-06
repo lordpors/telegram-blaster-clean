@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+{% block title %}Kirim Blast — MAMI GROUP{% endblock %}
+{% block content %}
+<div class="flex-between" style="margin-bottom:20px;">
+  <div>
+    <h2 style="font-size:1.35rem;">Buat & Pantau Job</h2>
+    <p class="muted small" style="margin-top:5px;">Pilih satu akun per tab, atau beberapa akun untuk membagi target secara bergiliran.</p>
+  </div>
+  <a href="/dashboard" class="btn btn-gray">← Dashboard</a>
+</div>
+
+{% if error_message %}<div class="alert alert-error">{{ error_message }}</div>{% endif %}
+
+<div class="card">
+  <div class="card-title">Job Pengiriman Baru</div>
+  <form method="post" action="/send-blast" enctype="multipart/form-data" id="blast-form">
+    <div class="field">
+      <label>Akun Pengirim <span class="label-note">centang satu atau beberapa akun</span></label>
+      <div class="account-grid">
+        {% for acc in accounts %}
+        <label class="account-choice">
+          <input type="checkbox" name="account_ids" value="{{ acc.id }}" {% if acc.id in selected_ids %}checked{% endif %}>
+          <strong>{{ acc.label or acc.phone }}</strong>
+          <div class="muted small" style="margin-top:4px;">{{ acc.phone }}</div>
+          <div class="small" style="color:#c4b5fd;margin-top:7px;">Antrean akun #{{ acc.id }}</div>
+        </label>
+        {% endfor %}
+      </div>
+      <div class="alert alert-info" style="margin-top:12px;margin-bottom:0;">
+        Satu akun hanya menjalankan satu antrean pada satu waktu. Bila akun yang sama dipakai tab lain, job berikutnya otomatis menunggu—bukan menabrak proses yang sedang berjalan.
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Gambar <span class="label-note">opsional, maksimal 10 MB</span></label>
+      <div class="upload-area" onclick="document.getElementById('img-input').click()">
+        <input type="file" id="img-input" name="image" accept="image/jpeg,image/png,image/gif,image/webp" onchange="previewImage(this)" style="display:none">
+        <div class="upload-icon" style="font-size:2rem;margin-bottom:6px;"></div>
+        <div class="upload-text muted small">Klik untuk pilih JPG, PNG, GIF, atau WebP</div>
+        <img class="upload-preview" src="" alt="preview">
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Username Penerima <span class="label-note">satu per baris, maksimal {{ max_recipients }}; @ dan tautan t.me diterima</span></label>
+      <textarea name="usernames" rows="7" placeholder="username1&#10;@username2&#10;https://t.me/username3" required>{{ prev_usernames or '' }}</textarea>
+    </div>
+
+    <div class="field">
+      <label>Draft Pesan</label>
+      <textarea name="message" rows="7" placeholder="Tulis pesan yang relevan untuk penerima yang memang menyetujui komunikasi ini..." required>{{ prev_message or '' }}</textarea>
+    </div>
+
+    <div class="md-hint">
+      <strong>Format Markdown:</strong> <code>**tebal**</code>, <code>_miring_</code>, dan <code>[teks](https://contoh.com)</code>.<br>
+      Target duplikat di dalam job otomatis dibuang. Target yang masih aktif di job lain ditandai <strong>Dilewati</strong> agar akun tidak saling bertabrakan.
+    </div>
+
+    <!-- ─── Interval jeda ──────────────────────────────────────────────── -->
+    <div class="field">
+      <label>Interval Jeda Antar Pesan</label>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:140px;">
+          <label style="font-size:.78rem;color:var(--muted);margin-bottom:5px;">Minimum (detik)</label>
+          <input type="number" name="delay_min" id="delay_min" min="0.1" step="0.1" value="5"
+                 style="padding:9px 12px;" oninput="syncDelayMax()">
+        </div>
+        <div style="padding-top:18px;color:var(--muted);">—</div>
+        <div style="flex:1;min-width:140px;">
+          <label style="font-size:.78rem;color:var(--muted);margin-bottom:5px;">Maksimum (detik)</label>
+          <input type="number" name="delay_max" id="delay_max" min="0.1" step="0.1" value="5"
+                 style="padding:9px 12px;">
+        </div>
+        <div style="padding-top:18px;">
+          <span class="badge badge-gray" style="font-size:.75rem;">0.5 = 500ms</span>
+        </div>
+      </div>
+      <div class="small muted" style="margin-top:7px;">
+        Jeda acak antara minimum dan maksimum sebelum setiap pesan dikirim.
+        Blast berhenti otomatis setelah <strong>5 kegagalan berturut-turut</strong>.
+      </div>
+    </div>
+
+    <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid #343444;border-radius:9px;margin-bottom:16px;cursor:pointer;">
+      <input type="checkbox" name="consent_confirmed" value="true" required style="margin-top:3px;width:17px;height:17px;">
+      <span style="font-weight:500;color:#d6d6df;line-height:1.45;">Saya memastikan daftar ini berisi penerima yang mengizinkan pesan, dan saya tidak memakai alat ini untuk spam atau mengakali batas Telegram.</span>
+    </label>
+
+    <button type="submit" class="btn btn-primary btn-block" id="submit-button">Mulai Job dan Tampilkan Status</button>
+  </form>
+</div>
+
+{% if job %}
+<div class="card" id="job-card" data-job-id="{{ job.id }}">
+  <div class="flex-between" style="margin-bottom:16px;">
+    <div>
+      <div class="card-title" style="margin-bottom:4px;">Status Job #{{ job.id }}</div>
+      <span id="job-status" class="badge badge-blue">{{ job.status }}</span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      {% if job.status in ('running', 'queued') %}
+      <form method="post" action="/stop-job/{{ job.id }}" style="margin:0;"
+            onsubmit="return confirm('Stop blast job #{{ job.id }}? Pesan yang sedang dikirim akan selesai, sisanya dijeda.')">
+        <button class="btn btn-danger" type="submit">Stop Blast</button>
+      </form>
+      {% endif %}
+      <a href="/blast" class="btn btn-outline">＋ Job Baru</a>
+    </div>
+  </div>
+
+  <div class="stats-grid" style="margin-bottom:16px;">
+    <div class="stat"><div class="stat-label">Total</div><div class="stat-value" id="count-total">{{ job.total_count }}</div></div>
+    <div class="stat"><div class="stat-label">Terkirim</div><div class="stat-value" id="count-sent" style="color:#86efac;">{{ job.sent_count }}</div></div>
+    <div class="stat"><div class="stat-label">Belum / Dijeda</div><div class="stat-value" id="count-pending" style="color:#fcd34d;">{{ job.pending_count }}</div></div>
+    <div class="stat"><div class="stat-label">Gagal / Dilewati</div><div class="stat-value" id="count-failed" style="color:#fca5a5;">{{ job.failed_count + job.skipped_count }}</div></div>
+  </div>
+
+  <div class="progress" style="margin-bottom:8px;"><div id="progress-bar"></div></div>
+  <div class="muted small" id="progress-text" style="margin-bottom:16px;">Menyiapkan status...</div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Username</th><th>Akun</th><th>Status</th><th>Keterangan</th></tr></thead>
+      <tbody id="recipient-table">
+      {% for row in recipients %}
+        <tr id="recipient-{{ row.id }}" class="status-row-{{ row.status }}">
+          <td>{{ loop.index }}</td>
+          <td><code>@{{ row.username }}</code></td>
+          <td>{{ row.account.label if row.account and row.account.label else (row.account.phone if row.account else 'Akun dihapus') }}</td>
+          <td>{{ row.status }}</td>
+          <td class="muted small">{{ row.error or '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-title">10 Job Terakhir</div>
+  {% if recent_jobs %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Job</th><th>Status</th><th>Total</th><th>Terkirim</th><th>Dibuat</th></tr></thead>
+      <tbody>
+      {% for item in recent_jobs %}
+        <tr>
+          <td><a class="inline-link" href="/blast?job_id={{ item.id }}">#{{ item.id }}</a></td>
+          <td>{{ item.status }}</td>
+          <td>{{ item.total_count }}</td>
+          <td>{{ item.sent_count }}</td>
+          <td class="muted small">{{ item.created_at.strftime('%d %b %Y %H:%M:%S') if item.created_at else '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<p class="muted">Belum ada job.</p>{% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Pastikan delay_max >= delay_min
+function syncDelayMax() {
+  const minEl = document.getElementById('delay_min');
+  const maxEl = document.getElementById('delay_max');
+  if (minEl && maxEl && parseFloat(maxEl.value) < parseFloat(minEl.value)) {
+    maxEl.value = minEl.value;
+  }
+}
+
+const form = document.getElementById('blast-form');
+if (form) {
+  form.addEventListener('submit', () => {
+    const btn = document.getElementById('submit-button');
+    btn.disabled = true;
+    btn.textContent = '⏳ Membuat antrean...';
+  });
+}
+
+const jobCard = document.getElementById('job-card');
+if (jobCard) {
+  const jobId = jobCard.dataset.jobId;
+  const terminal = new Set(['completed', 'partial', 'failed', 'paused']);
+  let timer = null;
+
+  function badgeClass(status) {
+    if (status === 'completed') return 'badge badge-green';
+    if (status === 'running') return 'badge badge-orange';
+    if (status === 'partial') return 'badge badge-purple';
+    if (status === 'failed') return 'badge badge-red';
+    if (status === 'paused') return 'badge badge-purple';
+    return 'badge badge-blue';
+  }
+
+  function recipientBadge(status, label) {
+    const classes = {
+      sent:'badge-green', sending:'badge-orange', failed:'badge-red', skipped:'badge-gray', pending:'badge-blue', paused:'badge-purple'
+    };
+    return `<span class="badge ${classes[status] || 'badge-gray'}">${label}</span>`;
+  }
+
+  async function refreshJob() {
+    try {
+      const response = await fetch(`/api/jobs/${jobId}`, {cache:'no-store'});
+      if (!response.ok) throw new Error('Status tidak dapat dibaca');
+      const data = await response.json();
+
+      const status = document.getElementById('job-status');
+      status.className = badgeClass(data.status);
+      status.textContent = data.status_label;
+      document.getElementById('count-total').textContent = data.total;
+      document.getElementById('count-sent').textContent = data.sent;
+      document.getElementById('count-pending').textContent = data.pending;
+      document.getElementById('count-failed').textContent = data.failed + data.skipped;
+
+      const finished = data.sent + data.failed + data.skipped;
+      const percent = data.total ? Math.round((finished / data.total) * 100) : 0;
+      document.getElementById('progress-bar').style.width = `${percent}%`;
+      if (data.status === 'paused') {
+        document.getElementById('progress-text').textContent = `${finished} dari ${data.total} target selesai. Sisanya belum dikirim karena akun dibatasi atau diminta menunggu oleh Telegram.`;
+      } else {
+        document.getElementById('progress-text').textContent = `${finished} dari ${data.total} target selesai diproses (${percent}%).`;
+      }
+
+      const tbody = document.getElementById('recipient-table');
+      tbody.innerHTML = data.recipients.map((row, index) => `
+        <tr id="recipient-${row.id}" class="status-row-${row.status}">
+          <td>${index + 1}</td>
+          <td><code>@${escapeHtml(row.username)}</code></td>
+          <td>${escapeHtml(row.account)}</td>
+          <td>${recipientBadge(row.status, row.status_label)}</td>
+          <td class="muted small">${escapeHtml(row.error || '—')}</td>
+        </tr>`).join('');
+
+      if (terminal.has(data.status) && timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+    } catch (error) {
+      document.getElementById('progress-text').textContent = `Gagal memperbarui status: ${error.message}`;
+    }
+  }
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[char]));
+  }
+
+  refreshJob();
+  timer = setInterval(refreshJob, 1500);
+}
+</script>
+{% endblock %}

@@ -1,0 +1,15 @@
+[Unit]
+Description=Telegram Blaster - miawjugabisa.com
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/telegram_blaster
+ExecStart=/var/www/telegram_blaster/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
