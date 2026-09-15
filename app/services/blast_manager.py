@@ -549,8 +549,8 @@ class BlastManager:
             job = db.get(BlastJob, job_id)
             if not job:
                 return
-            if job.status == "paused":
-                return  # sudah di-stop manual, jangan override
+            if job.status not in ACTIVE_JOB_STATES:
+                return
             paused_count = (
                 db.query(func.count(BlastRecipient.id))
                 .filter(BlastRecipient.job_id == job_id, BlastRecipient.status == "paused")

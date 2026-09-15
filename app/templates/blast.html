@@ -114,10 +114,10 @@
   <div class="flex-between" style="margin-bottom:16px;">
     <div>
       <div class="card-title" style="margin-bottom:4px;">Status Job #{{ job.id }}</div>
-      <span id="job-status" class="badge {% if job.status in ('completed', 'partial', 'failed') %}badge-green{% else %}badge-orange{% endif %}">{% if job.status in ('completed', 'partial', 'failed') %}Selesai{% else %}Proses{% endif %}</span>
+      <span id="job-status" class="badge {% if job.status in ('completed', 'partial', 'failed', 'cancelled') %}badge-green{% else %}badge-orange{% endif %}">{% if job.status == 'cancelled' %}Dihentikan{% elif job.status in ('completed', 'partial', 'failed') %}Selesai{% else %}Proses{% endif %}</span>
     </div>
     <div style="display:flex;gap:8px;align-items:center;">
-      {% if job.status in ('running', 'queued') %}
+      {% if job.status in ('running', 'queued') or (job.source == 'sheet' and job.status == 'paused') %}
       <form method="post" action="/stop-job/{{ job.id }}" style="margin:0;"
             onsubmit="return confirm('Stop blast job #{{ job.id }}? Pesan yang sedang dikirim akan selesai, sisanya dihentikan.')">
         <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
@@ -169,7 +169,8 @@
           <td><a class="inline-link" href="/blast?job_id={{ item.id }}">#{{ item.id }}</a></td>
           <td class="muted small">{{ item.created_at|jakarta_time('%d %b %Y %H:%M:%S') }}</td>
           <td>
-            {% if item.status in ('completed', 'partial', 'failed') %}<span class="badge badge-green">Selesai</span>
+            {% if item.status == 'cancelled' %}<span class="badge badge-green">Dihentikan</span>
+            {% elif item.status in ('completed', 'partial', 'failed') %}<span class="badge badge-green">Selesai</span>
             {% else %}<span class="badge badge-orange">Proses</span>{% endif %}
           </td>
           <td><strong style="color:#86efac;">{{ item.sent_count }}</strong> / {{ item.total_count }}</td>
@@ -277,7 +278,7 @@ if (jobCard) {
   let timer = null;
 
   function badgeClass(status) {
-    if (status === 'completed') return 'badge badge-green';
+    if (status === 'completed' || status === 'cancelled') return 'badge badge-green';
     if (status === 'running') return 'badge badge-orange';
     if (status === 'partial' || status === 'failed') return 'badge badge-green';
     if (status === 'paused') return 'badge badge-orange';

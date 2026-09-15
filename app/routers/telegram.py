@@ -345,16 +345,16 @@ def stop_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job tidak ditemukan")
     blast_manager.stop_job(job_id)
-    # Pastikan recipient yang masih pending di-pause di DB
-    if job and job.status in ("running", "queued"):
+    active = job.status in ("running", "queued") or (job.source == "sheet" and job.status == "paused")
+    if active:
         db.query(BlastRecipient).filter(
             BlastRecipient.job_id == job_id,
-            BlastRecipient.status.in_(["pending"]),
+            BlastRecipient.status.in_(["pending", "paused"]),
         ).update(
-            {BlastRecipient.status: "paused", BlastRecipient.error: "Dihentikan oleh pengguna"},
+            {BlastRecipient.status: "skipped", BlastRecipient.error: "Dihentikan oleh pengguna"},
             synchronize_session=False,
         )
-        job.status = "paused"
+        job.status = "cancelled"
         job.completed_at = datetime.utcnow()
         blast_manager._refresh_counts(db, job_id)
     return RedirectResponse(url=f"/blast?job_id={job_id}", status_code=303)
@@ -661,6 +661,7 @@ def job_status(
         "completed": "Selesai",
         "partial": "Selesai",
         "failed": "Selesai",
+        "cancelled": "Dihentikan",
         "paused": "Proses",
     }
 
@@ -668,7 +669,7 @@ def job_status(
         "id": job.id,
         "status": job.status,
         "status_label": job_labels.get(job.status, job.status),
-        "terminal": job.status in {"completed", "partial", "failed"}
+        "terminal": job.status in {"completed", "partial", "failed", "cancelled"}
         or (job.status == "paused" and job.source != "sheet"),
         "total": job.total_count,
         "sent": job.sent_count,

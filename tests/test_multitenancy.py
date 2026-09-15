@@ -203,6 +203,49 @@ class TenantIsolationTests(unittest.TestCase):
         self.assertIsNone(_normalize_username("invalid target"))
         self.assertEqual(_normalize_username("https://t.me/Valid_Target?start=1"), ("Valid_Target", "valid_target"))
 
+    def test_paused_sheet_job_can_be_stopped(self):
+        with SessionLocal() as db:
+            job = BlastJob(
+                user_id=self.owner_id,
+                status="paused",
+                source="sheet",
+                message="stop me",
+                accounts_json=f"[{self.owner_account_id}]",
+                consent_confirmed=True,
+            )
+            db.add(job)
+            db.flush()
+            db.add(BlastRecipient(
+                job_id=job.id,
+                account_id=self.owner_account_id,
+                username="waiting_target",
+                normalized_username="waiting_target",
+                status="paused",
+            ))
+            db.commit()
+            job_id = job.id
+
+        try:
+            page = self.client.get(f"/blast?job_id={job_id}")
+            self.assertIn(f'action="/stop-job/{job_id}"', page.text)
+            response = self.client.post(
+                f"/stop-job/{job_id}",
+                data={"csrf_token": _csrf_from(page.text)},
+            )
+            self.assertEqual(response.status_code, 200)
+            with SessionLocal() as db:
+                self.assertEqual(db.get(BlastJob, job_id).status, "cancelled")
+                self.assertEqual(
+                    db.query(BlastRecipient).filter(BlastRecipient.job_id == job_id).one().status,
+                    "skipped",
+                )
+            self.assertTrue(self.client.get(f"/api/jobs/{job_id}").json()["terminal"])
+        finally:
+            with SessionLocal() as db:
+                db.query(BlastRecipient).filter(BlastRecipient.job_id == job_id).delete()
+                db.query(BlastJob).filter(BlastJob.id == job_id).delete()
+                db.commit()
+
     def test_blast_account_picker_collapses_after_twelve(self):
         with SessionLocal() as db:
             extras = [

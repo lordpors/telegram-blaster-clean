@@ -85,7 +85,8 @@
           <td><a class="inline-link" href="/blast?job_id={{ job.id }}">#{{ job.id }}</a></td>
           <td class="muted small">{{ job.created_at|jakarta_time('%d %b %Y %H:%M:%S') }}</td>
           <td>
-            {% if job.status in ('completed', 'partial', 'failed') %}<span class="badge badge-green">Selesai</span>
+            {% if job.status == 'cancelled' %}<span class="badge badge-green">Dihentikan</span>
+            {% elif job.status in ('completed', 'partial', 'failed') %}<span class="badge badge-green">Selesai</span>
             {% else %}<span class="badge badge-orange">Proses</span>{% endif %}
           </td>
           <td><strong style="color:#86efac;">{{ job.sent_count }}</strong> / {{ job.total_count }}</td>

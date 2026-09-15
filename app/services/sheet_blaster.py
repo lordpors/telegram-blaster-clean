@@ -13,7 +13,7 @@ from app.routers.telegram import _normalize_delay_range, _normalize_username
 from app.services.blast_manager import blast_manager
 
 
-TERMINAL_STATES = {"completed", "partial", "failed"}
+TERMINAL_STATES = {"completed", "partial", "failed", "cancelled"}
 
 
 class SheetBlaster:
