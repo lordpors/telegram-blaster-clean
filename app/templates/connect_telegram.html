@@ -1,15 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Hubungkan Akun — MAMI GROUP{% endblock %}
+{% block title %}Akun — PorsLabs Telegram Blaster{% endblock %}
 {% block content %}
 {% set current_step = step if step else "connect" %}
 <div style="max-width:620px;margin:0 auto;">
-  <div class="flex-between" style="margin-bottom:20px;">
-    <h2 style="font-size:1.3rem;">
+  <div class="flex-between page-head">
+    <div><span class="eyebrow">Akun</span><h1>
       {% if current_step == "connect" %}Tambah Akun Telegram
       {% elif current_step == "otp" %}Verifikasi OTP
       {% elif current_step == "2fa" %}Two-Step Verification
       {% else %}✅ Akun Terhubung{% endif %}
-    </h2>
+    </h1></div>
     <a href="/dashboard" class="btn btn-gray" style="font-size:.85rem;">← Beranda</a>
   </div>
   <div class="steps">
@@ -32,6 +32,7 @@
       4. Buat aplikasi sederhana, kemudian salin <strong>App api_id</strong> dan <strong>App api_hash</strong> ke form ini.
     </div>
     <form method="post" action="/connect-telegram">
+      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
       <div class="field"><label>Label Akun <span class="label-note">contoh: Akun Promo 1</span></label><input type="text" name="label" placeholder="Akun Utama" value="{{ label or '' }}"></div>
       <div class="field"><label>Nomor Telepon</label><input type="text" name="phone" placeholder="+628xxxxxxxxxx" required value="{{ phone or '' }}"></div>
       <div class="field"><label>API ID</label><input type="number" name="api_id" placeholder="28739281" required value="{{ api_id or '' }}"></div>
@@ -45,11 +46,13 @@
   <div class="card">
     <p class="muted" style="margin-bottom:18px;">Masukkan kode OTP yang dikirim Telegram ke <strong>{{ phone }}</strong>.</p>
     <form method="post" action="/verify-otp">
+      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
       <input type="hidden" name="phone" value="{{ phone }}"><input type="hidden" name="api_id" value="{{ api_id }}"><input type="hidden" name="api_hash" value="{{ api_hash }}"><input type="hidden" name="label" value="{{ label or '' }}"><input type="hidden" name="session_str" value="{{ session_str }}"><input type="hidden" name="phone_code_hash" value="{{ phone_code_hash }}">
       <div class="field"><label>Kode OTP</label><input type="text" name="otp_code" placeholder="12345" required autofocus inputmode="numeric" maxlength="6" style="letter-spacing:6px;font-size:1.2rem;text-align:center;"></div>
       <button class="btn btn-primary btn-block">Verifikasi OTP</button>
     </form>
     <form method="post" action="/resend-otp" style="margin-top:10px;">
+      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
       <input type="hidden" name="phone" value="{{ phone }}"><input type="hidden" name="api_id" value="{{ api_id }}"><input type="hidden" name="api_hash" value="{{ api_hash }}"><input type="hidden" name="label" value="{{ label or '' }}">
       <button class="btn btn-outline btn-block">Kirim Ulang OTP</button>
     </form>
@@ -60,6 +63,7 @@
   <div class="card">
     <p class="muted" style="margin-bottom:18px;">Akun memakai verifikasi dua langkah. Masukkan password 2FA Telegram.</p>
     <form method="post" action="/verify-2fa">
+      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
       <input type="hidden" name="phone" value="{{ phone }}"><input type="hidden" name="api_id" value="{{ api_id }}"><input type="hidden" name="api_hash" value="{{ api_hash }}"><input type="hidden" name="label" value="{{ label or '' }}"><input type="hidden" name="session_str" value="{{ session_str }}">
       <div class="field"><label>Password 2FA</label><input type="password" name="password_2fa" required autofocus></div>
       <button class="btn btn-primary btn-block">Masuk dengan Password</button>
@@ -69,9 +73,9 @@
 
   {% if current_step == "blast" %}
   <div class="card" style="text-align:center;">
-    <div style="font-size:3rem;margin-bottom:12px;"></div>
+    <div style="font-size:2.4rem;margin-bottom:12px;color:var(--green);">✓</div>
     <h3 style="margin-bottom:8px;">Akun tersimpan</h3>
-    <p class="muted" style="margin-bottom:22px;">Setiap tab sekarang memilih akun sendiri. Menambah atau memakai akun ini tidak akan mengganti akun pada tab lain.</p>
+    <p class="muted" style="margin-bottom:22px;">Akun ini tersimpan hanya untuk pengguna Google Anda dan tidak terlihat oleh workspace lain.</p>
     <div class="flex" style="justify-content:center;flex-wrap:wrap;">
       <a href="/blast?account_id={{ account_id }}" class="btn btn-success">Buat Job dengan Akun Ini</a>
       <a href="/dashboard" class="btn btn-outline">Dashboard</a>

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Keamanan — PorsLabs Telegram Blaster{% endblock %}
+{% block content %}
+<div class="flex-between page-head">
+  <div>
+    <span class="eyebrow">Keamanan Akun</span>
+    <h1>Perangkat & <span class="gradient-text">Sesi Login</span></h1>
+    <p>Periksa browser yang masih memiliki akses dan keluarkan perangkat yang tidak Anda kenali.</p>
+  </div>
+</div>
+
+{% if notice == 'session_revoked' %}<div class="alert alert-success">Sesi perangkat berhasil dikeluarkan.</div>{% endif %}
+{% if notice == 'others_revoked' %}<div class="alert alert-success">Semua perangkat lain berhasil dikeluarkan.</div>{% endif %}
+
+<div class="card">
+  <div class="flex-between" style="margin-bottom:18px;">
+    <div>
+      <div class="card-title" style="margin:0 0 5px;">Sesi aktif</div>
+      <p class="muted small">IP ditampilkan agar aktivitas yang tidak dikenal mudah ditemukan.</p>
+    </div>
+    {% if sessions|length > 1 %}
+    <form method="post" action="/security/sessions/revoke-others">
+      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+      <button class="btn btn-outline" type="submit">Keluarkan perangkat lain</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <div class="session-list">
+    {% for session in sessions %}
+    <article class="session-item {% if session.id == current_session_id %}current{% endif %}">
+      <div class="session-icon" aria-hidden="true">{% if 'Phone' in session.device_name or 'Android' in session.device_name or 'iPad' in session.device_name %}▯{% else %}▰{% endif %}</div>
+      <div class="session-copy">
+        <div class="session-title">{{ session.device_name }} {% if session.id == current_session_id %}<span class="badge badge-green">Perangkat ini</span>{% endif %}</div>
+        <div class="session-meta">
+          <span>IP {{ session.ip_address or 'tidak tersedia' }}</span>
+          <span>Aktif {{ session.last_seen_at|jakarta_time }}</span>
+          <span>Kedaluwarsa {{ session.expires_at|jakarta_time }}</span>
+        </div>
+      </div>
+      <form method="post" action="/security/sessions/{{ session.id }}/revoke" onsubmit="return confirm('Keluarkan sesi ini?');">
+        <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+        <button class="btn {% if session.id == current_session_id %}btn-gray{% else %}btn-danger{% endif %}" type="submit">{% if session.id == current_session_id %}Logout{% else %}Keluarkan{% endif %}</button>
+      </form>
+    </article>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card danger-zone">
+  <div class="flex-between">
+    <div><div class="card-title" style="margin:0 0 5px;">Keluar dari semua perangkat</div><p class="muted small">Semua sesi, termasuk perangkat ini, akan langsung dicabut.</p></div>
+    <form method="post" action="/security/sessions/revoke-all" onsubmit="return confirm('Keluar dari semua perangkat?');">
+      <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+      <button class="btn btn-danger" type="submit">Keluar dari semua</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

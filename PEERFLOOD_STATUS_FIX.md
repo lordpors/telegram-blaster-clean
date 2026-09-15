@@ -2,8 +2,8 @@
 
 Perubahan:
 
-- Kolom jeda tidak lagi ditampilkan kepada pengguna.
-- Aplikasi tetap menerapkan jeda internal 5 detik per akun.
+- Kolom jeda tersedia dan menerima nilai mulai dari 0 detik.
+- Jeda mengikuti nilai pengguna dan dapat diatur ke 0 detik; batas Telegram tetap berlaku.
 - PeerFlood dan FloodWait dibedakan dengan benar.
 - Hanya target yang benar-benar dicoba yang ditandai gagal.
 - Target sisanya ditandai `Dijeda — belum dikirim`, bukan gagal.

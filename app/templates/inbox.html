@@ -1,0 +1,461 @@
+{% extends "base.html" %}
+{% block title %}Inbox — PorsLabs Telegram Blaster{% endblock %}
+
+{% macro fields(account_id, peer_id) %}
+<input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+<input type="hidden" name="account_id" value="{{ account_id }}">
+<input type="hidden" name="peer_id" value="{{ peer_id }}">
+<input type="hidden" name="view" value="{{ view }}">
+{% endmacro %}
+
+{% macro action_icon(name) %}
+<svg viewBox="0 0 24 24" aria-hidden="true">
+  {% if name == 'archive' %}<path d="M4 7h16v13H4zM3 3h18v4H3zM9 12h6"></path>
+  {% elif name == 'restore' %}<path d="M4 7h16v13H4zM3 3h18v4H3zM12 16V9m-3 3 3-3 3 3"></path>
+  {% elif name == 'mute' %}<path d="M18 8a6 6 0 0 0-9.7-4.7M6 8c0 7-3 7-3 9h14M10 21h4M3 3l18 18"></path>
+  {% elif name == 'unmute' %}<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"></path>
+  {% elif name == 'pin' %}<path d="m14 4 6 6-3 1-4 4-1 5-2-2-4 4-1-1 4-4-2-2 5-1 4-4z"></path>
+  {% elif name == 'favorite' %}<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z"></path>
+  {% elif name == 'read' %}<path d="m3 12 4 4 8-9M13 15l2 2 6-7"></path>
+  {% elif name == 'unread' %}<rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="m3 7 9 6 9-6"></path>
+  {% elif name == 'select' %}<rect x="4" y="4" width="16" height="16" rx="2"></rect><path d="m8 12 3 3 6-7"></path>
+  {% elif name == 'list' %}<path d="M9 6h11M9 12h11M9 18h7M4 6h.01M4 12h.01M4 18h.01M19 16v5M16.5 18.5h5"></path>
+  {% elif name == 'block' %}<circle cx="12" cy="12" r="9"></circle><path d="m6 6 12 12"></path>
+  {% elif name == 'clear' %}<path d="m3 15 9-9 6 6-9 9H3zM10 19h11M9 9l6 6"></path>
+  {% elif name == 'delete' %}<path d="M4 7h16M9 11v6M15 11v6M6 7l1 13h10l1-13M9 7l1-3h4l1 3"></path>
+  {% elif name == 'starred' %}<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z"></path>
+  {% elif name == 'close' %}<path d="m6 6 12 12M18 6 6 18"></path>
+  {% endif %}
+</svg>
+{% endmacro %}
+
+{% macro menu_action(action, label, icon, account_id, peer_id, danger=false, confirm=false, css='') %}
+<form method="post" action="/inbox/conversation/{{ action }}" class="{{ css }}"{% if confirm %} onsubmit="return confirm('Tindakan ini tidak dapat dibatalkan. Lanjutkan?')"{% endif %}>
+  {{ fields(account_id, peer_id) }}
+  <button class="menu-action{% if danger %} danger{% endif %}" type="submit"><span class="menu-action-icon">{{ action_icon(icon) }}</span>{{ label }}</button>
+</form>
+{% endmacro %}
+
+{% block extra_head %}
+<style>
+  .main { width:min(1500px, calc(100% - 32px)); margin-top:18px; }
+  .site-footer { display:none; }
+  .inbox-notice { margin-bottom:10px; padding:9px 13px; font-size:.72rem; }
+  .inbox-shell { display:grid; grid-template-columns:390px minmax(0,1fr); height:calc(100dvh - 104px); min-height:580px; padding:0; overflow:hidden; border:1px solid var(--border); border-radius:14px; background:var(--bg-deep); box-shadow:0 18px 55px rgba(0,0,0,.34); }
+  .inbox-shell::after { display:none; }
+  .inbox-shell:hover { transform:none; border-color:var(--border); box-shadow:0 18px 55px rgba(0,0,0,.34); }
+  .conversation-pane { display:flex; min-width:0; min-height:0; flex-direction:column; border-right:1px solid var(--border); background:var(--bg-deep); }
+  .pane-top { position:relative; display:flex; height:62px; align-items:center; justify-content:space-between; padding:0 14px 0 18px; border-bottom:1px solid var(--border); background:var(--bg-soft); }
+  .pane-title { color:#f8fafc; font-size:1.08rem; font-weight:700; }
+  .top-actions, .chat-head-actions { display:flex; align-items:center; gap:3px; }
+  .icon-button { display:grid; width:38px; height:38px; place-items:center; border:0; border-radius:50%; color:#cbd5e1; background:transparent; transition:background .15s ease,color .15s ease; }
+  .icon-button:hover, .icon-button[aria-expanded="true"] { color:#fff; background:rgba(99,102,241,.2); }
+  .icon-button svg { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  .quick-search { position:relative; padding:9px 12px 7px; background:var(--bg-deep); }
+  .quick-search svg { position:absolute; top:20px; left:25px; width:16px; height:16px; color:#86909c; fill:none; stroke:currentColor; stroke-width:2; }
+  .quick-search input { width:100%; height:39px; padding:0 34px 0 39px; border:0; border-radius:9px; outline:0; color:var(--text); background:var(--surface-2); font-size:.76rem; box-shadow:none; }
+  .quick-search input:focus { border:0; background:rgba(99,102,241,.14); box-shadow:0 0 0 1px var(--border-hover); }
+  .filter-chips { display:flex; gap:7px; padding:2px 12px 9px; overflow-x:auto; overscroll-behavior-inline:contain; background:var(--bg-deep); scrollbar-width:thin; scrollbar-color:rgba(99,102,241,.58) rgba(255,255,255,.04); }
+  .filter-chips::-webkit-scrollbar { height:5px; }
+  .filter-chips::-webkit-scrollbar-track { background:rgba(255,255,255,.04); border-radius:99px; }
+  .filter-chips::-webkit-scrollbar-thumb { background:rgba(99,102,241,.58); border-radius:99px; }
+  .filter-chips::-webkit-scrollbar-thumb:hover { background:var(--primary-light); }
+  .filter-chip { flex:0 0 auto; padding:6px 11px; border:1px solid var(--border); border-radius:99px; color:var(--muted); font-size:.65rem; font-weight:600; }
+  .filter-chip:hover { color:#fff; border-color:var(--border-hover); background:rgba(99,102,241,.12); }
+  .filter-chip.active { border-color:rgba(129,140,248,.62); color:#c7d2fe; background:rgba(99,102,241,.2); }
+  .conversation-scroll { flex:1; min-height:0; overflow-y:auto; }
+  .conversation-item { position:relative; display:flex; min-height:72px; align-items:center; border-bottom:1px solid rgba(255,255,255,.045); }
+  .conversation-item:hover, .conversation-item.active { background:rgba(99,102,241,.11); }
+  .conversation-item.active::before { content:''; position:absolute; inset:0 auto 0 0; width:3px; background:linear-gradient(var(--cyan),var(--primary),var(--secondary)); }
+  .conversation-link { display:grid; min-width:0; flex:1; grid-template-columns:49px minmax(0,1fr); gap:11px; align-items:center; padding:10px 36px 10px 13px; color:inherit; }
+  .avatar { position:relative; display:grid; width:46px; height:46px; place-items:center; overflow:hidden; border-radius:50%; color:#eef2ff; background:linear-gradient(145deg,var(--primary),var(--secondary)); font-size:.95rem; font-weight:700; text-transform:uppercase; }
+  .avatar.large { width:43px; height:43px; flex:0 0 auto; }
+  .avatar img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  .conversation-main { min-width:0; }
+  .conversation-line { display:flex; min-width:0; align-items:center; gap:8px; }
+  .conversation-name { overflow:hidden; flex:1; color:#f1f5f9; font-size:.78rem; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+  .conversation-time { color:#7b8794; font-size:.59rem; white-space:nowrap; }
+  .conversation-item.has-unread .conversation-time { color:#a5b4fc; }
+  .conversation-sub { display:flex; min-width:0; align-items:center; gap:6px; margin-top:4px; }
+  .conversation-preview { overflow:hidden; flex:1; color:#8f9aa7; font-size:.68rem; text-overflow:ellipsis; white-space:nowrap; }
+  .conversation-flags { display:flex; align-items:center; gap:4px; color:#87919c; font-size:.66rem; }
+  .list-label { max-width:78px; overflow:hidden; padding:2px 5px; border-radius:4px; color:#a5f3fc; background:rgba(34,211,238,.1); font-size:.52rem; text-overflow:ellipsis; white-space:nowrap; }
+  .unread-badge { min-width:18px; height:18px; display:grid; place-items:center; padding:0 5px; border-radius:99px; color:#fff; background:linear-gradient(135deg,var(--primary),var(--secondary)); font-size:.55rem; font-weight:800; }
+  .row-menu-button { position:absolute; z-index:3; top:26px; right:5px; width:28px; height:28px; opacity:0; }
+  .conversation-item:hover .row-menu-button, .row-menu-button[aria-expanded="true"] { opacity:1; }
+  .select-check { display:none; margin-left:13px; }
+  .select-check input { width:18px; height:18px; accent-color:var(--primary); }
+  .selecting .select-check { display:block; }
+  .selecting .conversation-link { grid-template-columns:49px minmax(0,1fr); padding-left:8px; cursor:pointer; }
+  .selecting .conversation-item:has(.select-check input:checked) { background:rgba(99,102,241,.2); box-shadow:inset 3px 0 var(--primary-light); }
+  .selecting .row-menu-button { display:none; }
+  .bulk-toolbar { display:none; min-height:62px; align-items:center; gap:5px; padding:0 9px; border-bottom:1px solid var(--border); background:var(--bg-soft); }
+  .selecting .pane-top { display:none; }
+  .selecting .bulk-toolbar { display:flex; }
+  .bulk-count { flex:1; margin-left:5px; color:#eef2f7; font-size:.75rem; font-weight:600; }
+  .bulk-toolbar .icon-button { border:1px solid transparent; border-radius:10px; }
+  .bulk-toolbar .icon-button:not(:disabled):hover { border-color:rgba(129,140,248,.3); background:rgba(99,102,241,.2); }
+  .bulk-toolbar .icon-button[value="delete"] { color:#fca5a5; }
+  .bulk-toolbar button:disabled { opacity:.35; cursor:not-allowed; }
+  .popup-menu { position:absolute; z-index:40; top:52px; right:10px; width:225px; padding:7px; border:1px solid var(--border); border-radius:10px; background:#160d36; box-shadow:0 14px 38px rgba(0,0,0,.5); }
+  .conversation-menu { position:fixed; top:auto; right:auto; width:236px; }
+  .popup-menu[hidden] { display:none; }
+  .menu-action { width:100%; display:flex; align-items:center; gap:11px; padding:9px 10px; border:0; border-radius:7px; color:#e4e8ec; background:transparent; font-size:.69rem; text-align:left; }
+  .menu-action:hover { background:rgba(99,102,241,.2); }
+  .menu-action-icon { width:20px; height:20px; display:grid; flex:0 0 auto; place-items:center; color:#b9c2cc; }
+  .menu-action-icon svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+  .menu-action.danger { color:#ffaaa9; }
+  .menu-action.danger .menu-action-icon { color:#ff8f8c; }
+  .menu-separator { height:1px; margin:5px 7px; background:var(--border); }
+  .global-menu form, .conversation-menu form, .chat-menu form { margin:0; }
+
+  .chat-pane { display:flex; min-width:0; min-height:0; flex-direction:column; background:var(--bg-deep); }
+  .chat-head { position:relative; display:flex; min-height:62px; align-items:center; gap:10px; padding:8px 13px; border-bottom:1px solid var(--border); background:var(--bg-soft); }
+  .mobile-back { display:none; width:30px; color:#cbd5e1; font-size:1.5rem; }
+  .chat-person { min-width:0; flex:1; }
+  .chat-name { display:flex; align-items:center; gap:6px; overflow:hidden; color:#f8fafc; font-size:.78rem; font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
+  .chat-meta { display:flex; align-items:center; gap:6px; overflow:hidden; margin-top:2px; color:#98a2ad; font-size:.58rem; text-overflow:ellipsis; white-space:nowrap; }
+  .chat-meta .account-presence { font-size:.55rem; }
+  .chat-menu { top:54px; right:10px; }
+  .chat-search-bar { display:none; align-items:center; gap:8px; padding:8px 13px; border-bottom:1px solid var(--border); background:#0b0323; }
+  .chat-search-bar.open { display:flex; }
+  .chat-search-bar input { height:36px; flex:1; padding:0 12px; border:0; border-radius:8px; background:var(--surface-2); font-size:.7rem; box-shadow:none; }
+  .chat-search-bar button { width:32px; height:32px; }
+  .chat-messages { flex:1; min-height:0; overflow-y:auto; padding:22px 7%; background-color:#050018; background-image:linear-gradient(45deg,rgba(129,140,248,.025) 25%,transparent 25%),linear-gradient(-45deg,rgba(168,85,247,.022) 25%,transparent 25%); background-size:28px 28px; }
+  .chat-row { display:flex; margin-bottom:5px; }
+  .chat-row.out { justify-content:flex-end; }
+  .chat-bubble { position:relative; width:fit-content; max-width:min(64%,560px); padding:7px 9px 5px; border:1px solid rgba(255,255,255,.06); border-radius:8px 8px 8px 2px; color:#e8edf1; background:#17102d; box-shadow:0 1px 2px rgba(0,0,0,.35); font-size:.72rem; line-height:1.45; overflow-wrap:anywhere; }
+  .chat-row.out .chat-bubble { border-color:rgba(129,140,248,.2); border-radius:8px 8px 2px 8px; background:#302767; }
+  .message-text { white-space:pre-wrap; }
+  .message-media { display:block; max-width:min(420px,100%); margin-bottom:6px; border-radius:7px; }
+  audio.message-media { width:280px; }
+  .file-message { display:flex; align-items:center; gap:8px; margin-bottom:5px; padding:8px; border-radius:7px; color:#d7f9ed; background:rgba(0,0,0,.18); }
+  .bubble-meta { display:flex; align-items:center; justify-content:flex-end; gap:4px; margin-top:2px; color:#a3adb7; font-size:.52rem; line-height:1; }
+  .star-message-form { position:absolute; top:-7px; right:-7px; margin:0; opacity:0; }
+  .chat-bubble:hover .star-message-form, .star-message-form.is-starred { opacity:1; }
+  .star-button { width:22px; height:22px; display:grid; place-items:center; border:0; border-radius:50%; color:#aeb7c0; background:#2a2050; font-size:.72rem; }
+  .star-message-form.is-starred .star-button { color:#ffd966; }
+  .empty-chat { display:grid; flex:1; min-height:200px; place-items:center; padding:35px; color:#8f9aa5; text-align:center; }
+  .empty-chat strong { display:block; color:#dce2e7; font-size:.82rem; }
+  .empty-chat p { max-width:310px; margin-top:5px; font-size:.66rem; }
+  .composer { position:relative; padding:9px 12px; border-top:1px solid var(--border); background:var(--bg-soft); }
+  .attachment-preview { display:flex; align-items:center; gap:8px; margin-bottom:7px; padding:7px 10px; border-radius:7px; color:#cbd5df; background:var(--surface-2); font-size:.62rem; }
+  .attachment-preview[hidden] { display:none; }
+  .attachment-preview span { overflow:hidden; flex:1; text-overflow:ellipsis; white-space:nowrap; }
+  .attachment-preview button { border:0; color:#d7dde4; background:transparent; }
+  .reply-form { display:flex; align-items:flex-end; gap:3px; }
+  .reply-form textarea { min-height:42px; max-height:120px; flex:1; padding:11px 12px; border:0; border-radius:9px; outline:0; resize:none; color:#f1f5f9; background:var(--surface-2); font-size:.72rem; line-height:1.4; box-shadow:none; }
+  .reply-form textarea:focus { border:0; background:rgba(99,102,241,.14); box-shadow:0 0 0 1px var(--border-hover); }
+  .composer-button { flex:0 0 auto; border:1px solid transparent; color:#b9c4d3; }
+  .composer-button:hover { border-color:rgba(129,140,248,.26); color:#fff; background:rgba(99,102,241,.2); }
+  .reply-form .composer-button[type="submit"] { color:#fff; background:linear-gradient(135deg,var(--primary),var(--secondary)); box-shadow:0 5px 16px rgba(99,102,241,.28); }
+  .reply-form .composer-button[type="submit"]:hover { background:linear-gradient(135deg,var(--primary-light),var(--secondary)); }
+  .composer-button.recording { color:#ff7b78; background:#442828; }
+  .emoji-panel { position:absolute; z-index:25; left:48px; bottom:62px; width:230px; display:grid; grid-template-columns:repeat(6,1fr); gap:3px; padding:9px; border:1px solid var(--border); border-radius:10px; background:#160d36; box-shadow:0 12px 30px rgba(0,0,0,.45); }
+  .emoji-panel[hidden] { display:none; }
+  .emoji-panel button { height:30px; border:0; border-radius:6px; background:transparent; font-size:1rem; }
+  .emoji-panel button:hover { background:rgba(99,102,241,.2); }
+  .composer-note { padding:13px; border-top:1px solid var(--border); color:#98a2ad; background:var(--bg-soft); font-size:.68rem; text-align:center; }
+  .blocked-note { color:#ffaaa9; }
+
+  @media (max-width:900px) {
+    .main { width:100%; margin:0; }
+    .inbox-shell { grid-template-columns:340px minmax(0,1fr); height:calc(100dvh - 76px); border-inline:0; border-radius:0; }
+    .chat-bubble { max-width:76%; }
+  }
+  @media (max-width:720px) {
+    .inbox-shell { grid-template-columns:1fr; height:calc(100dvh - 76px); min-height:0; }
+    .inbox-shell.has-selection .conversation-pane { display:none; }
+    .inbox-shell:not(.has-selection) .chat-pane { display:none; }
+    .conversation-pane { border-right:0; }
+    .mobile-back { display:block; }
+    .chat-messages { padding:15px 10px; }
+    .chat-bubble { max-width:84%; }
+    .chat-meta .account-presence, .chat-meta .route-label { display:none; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+{% if error == 'invalid_message' %}<div class="alert alert-error inbox-notice">Tulis pesan atau pilih lampiran terlebih dahulu.</div>
+{% elif error == 'file_too_large' %}<div class="alert alert-error inbox-notice">Ukuran lampiran maksimal 10 MB.</div>
+{% elif error == 'send_failed' %}<div class="alert alert-error inbox-notice">Pesan gagal dikirim. Periksa kembali status akun Telegram.</div>
+{% elif error == 'blocked' %}<div class="alert alert-error inbox-notice">Kontak sedang diblokir. Buka blokir sebelum membalas.</div>
+{% elif error == 'action_failed' %}<div class="alert alert-error inbox-notice">Aksi Telegram gagal. Pastikan akun masih aktif.</div>
+{% elif notice == 'blocked_all' %}<div class="alert alert-success inbox-notice">Kontak berhasil diblokir di seluruh akun yang terhubung.</div>
+{% elif notice == 'blocked_partial' %}<div class="alert alert-info inbox-notice">Kontak diblokir pada akun yang dapat mengenalinya; sebagian akun tidak dapat memproses kontak ini.</div>
+{% elif notice == 'unblocked_all' %}<div class="alert alert-success inbox-notice">Blokir kontak berhasil dibuka di seluruh akun yang terhubung.</div>
+{% elif notice == 'unblocked_partial' %}<div class="alert alert-info inbox-notice">Blokir dibuka pada akun yang dapat mengenalinya; sebagian akun tidak dapat memproses kontak ini.</div>
+{% elif notice %}<div class="alert alert-success inbox-notice">Perubahan percakapan berhasil disimpan.</div>{% endif %}
+
+<form id="bulk-form" method="post" action="/inbox/conversations/bulk">
+  <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+  <input type="hidden" name="view" value="{{ view }}">
+</form>
+
+<div class="card inbox-shell {% if selected %}has-selection{% endif %}" id="inbox-shell">
+  <aside class="conversation-pane" aria-label="Daftar percakapan">
+    <header class="pane-top">
+      <strong class="pane-title">Inbox</strong>
+      <div class="top-actions">
+        <button class="icon-button" type="button" id="enable-inbox-notifications" title="Aktifkan notifikasi" aria-label="Aktifkan notifikasi">
+          <svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"></path></svg>
+        </button>
+        <button class="icon-button" type="button" data-menu-toggle="global-menu" aria-label="Menu Inbox" aria-expanded="false">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
+        </button>
+      </div>
+      <div class="popup-menu global-menu" id="global-menu" hidden>
+        <a class="menu-action" href="/inbox?view=starred"><span class="menu-action-icon">{{ action_icon('starred') }}</span>Pesan berbintang</a>
+        <button class="menu-action" type="button" id="select-conversations"><span class="menu-action-icon">{{ action_icon('select') }}</span>Pilih obrolan</button>
+        <form method="post" action="/inbox/read-all">
+          <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+          <button class="menu-action" type="submit"><span class="menu-action-icon">{{ action_icon('read') }}</span>Tandai semua sudah dibaca</button>
+        </form>
+      </div>
+    </header>
+
+    <div class="bulk-toolbar">
+      <button class="icon-button" type="button" id="cancel-selection" title="Batalkan pilihan" aria-label="Batalkan pilihan">{{ action_icon('close') }}</button>
+      <span class="bulk-count"><span id="selected-count">0</span> dipilih</span>
+      <button class="icon-button" form="bulk-form" name="action" value="read" type="submit" title="Tandai sudah dibaca" aria-label="Tandai sudah dibaca" disabled>{{ action_icon('read') }}</button>
+      <button class="icon-button" form="bulk-form" name="action" value="mute" type="submit" title="Bisukan notifikasi" aria-label="Bisukan notifikasi" disabled>{{ action_icon('mute') }}</button>
+      <button class="icon-button" form="bulk-form" name="action" value="archive" type="submit" title="Arsipkan" aria-label="Arsipkan" disabled>{{ action_icon('archive') }}</button>
+      <button class="icon-button" form="bulk-form" name="action" value="delete" type="submit" title="Hapus" aria-label="Hapus" disabled>{{ action_icon('delete') }}</button>
+    </div>
+
+    <div class="quick-search">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+      <input id="conversation-search" type="search" placeholder="Cari atau mulai obrolan baru" aria-label="Cari percakapan">
+    </div>
+    <nav class="filter-chips" aria-label="Filter Inbox">
+      <a class="filter-chip {% if view == 'all' %}active{% endif %}" href="/inbox">Semua {{ counts.all }}</a>
+      <a class="filter-chip {% if view == 'unread' %}active{% endif %}" href="/inbox?view=unread">Belum dibaca {{ counts.unread }}</a>
+      <a class="filter-chip {% if view == 'favorite' %}active{% endif %}" href="/inbox?view=favorite">Favorit {{ counts.favorite }}</a>
+      <a class="filter-chip {% if view == 'archived' %}active{% endif %}" href="/inbox?view=archived">Arsip {{ counts.archived }}</a>
+      {% for item in list_filters %}<a class="filter-chip {% if active_list == item.label %}active{% endif %}" href="{{ item.url }}">{{ item.label }}</a>{% endfor %}
+    </nav>
+
+    <div class="conversation-scroll" id="conversation-scroll">
+      {% for item in conversations %}
+      {% set state = item.state %}
+      <article class="conversation-item {% if selected and selected.id == state.id %}active{% endif %} {% if item.unread %}has-unread{% endif %}" data-search="{{ item.peer_name }} {{ item.peer_username or '' }} {{ item.account_label }} {{ state.list_label or '' }}">
+        <label class="select-check" aria-label="Pilih {{ item.peer_name }}"><input form="bulk-form" type="checkbox" name="conversation_keys" value="{{ item.account_id }}:{{ item.peer_id }}"></label>
+        <a class="conversation-link" href="{{ item.url }}">
+          <span class="avatar">{{ item.peer_name[:1] }}{% if state.avatar_path != '-' %}<img loading="lazy" src="/inbox/avatar/{{ state.id }}" alt="" onerror="this.hidden=true">{% endif %}</span>
+          <span class="conversation-main">
+            <span class="conversation-line"><span class="conversation-name">{{ item.peer_name }}</span><time class="conversation-time">{{ (item.latest.created_at if item.latest else state.updated_at)|jakarta_time('%H:%M') }}</time></span>
+            <span class="conversation-sub">
+              <span class="conversation-preview">{{ item.account_label }} · {% if item.latest %}{% if item.latest.direction == 'out' %}✓ {% endif %}{{ item.latest.body }}{% else %}Percakapan dibersihkan{% endif %}</span>
+              <span class="conversation-flags"><span class="account-presence is-checking" data-account-status="{{ item.account_id }}"><span class="live-mark"></span><span data-account-status-label>Memeriksa…</span></span>{% if state.is_muted %}♩{% endif %}{% if state.is_pinned %}⌖{% endif %}{% if state.is_favorite %}★{% endif %}{% if state.list_label %}<span class="list-label">{{ state.list_label }}</span>{% endif %}{% if item.unread %}<span class="unread-badge">{{ item.unread }}</span>{% endif %}</span>
+            </span>
+          </span>
+        </a>
+        <button class="icon-button row-menu-button" type="button" data-menu-toggle="conversation-menu-{{ state.id }}" aria-label="Menu {{ item.peer_name }}" aria-expanded="false"><svg viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"></path></svg></button>
+        <div class="popup-menu conversation-menu" id="conversation-menu-{{ state.id }}" hidden>
+          {{ menu_action('restore' if state.is_archived else 'archive', 'Kembalikan ke Inbox' if state.is_archived else 'Arsipkan chat', 'restore' if state.is_archived else 'archive', item.account_id, item.peer_id) }}
+          {{ menu_action('unmute' if state.is_muted else 'mute', 'Bunyikan notifikasi' if state.is_muted else 'Bisukan notifikasi', 'unmute' if state.is_muted else 'mute', item.account_id, item.peer_id) }}
+          {{ menu_action('unpin' if state.is_pinned else 'pin', 'Lepas sematan' if state.is_pinned else 'Sematkan chat', 'pin', item.account_id, item.peer_id) }}
+          {{ menu_action('unread', 'Tandai belum dibaca', 'unread', item.account_id, item.peer_id) }}
+          {{ menu_action('unfavorite' if state.is_favorite else 'favorite', 'Hapus dari favorit' if state.is_favorite else 'Tambah ke favorit', 'favorite', item.account_id, item.peer_id) }}
+          {{ menu_action('list', 'Tambahkan ke daftar', 'list', item.account_id, item.peer_id, css='list-action') }}
+          <div class="menu-separator"></div>
+          {{ menu_action('unblock' if state.is_blocked else 'block', 'Buka blokir' if state.is_blocked else 'Blokir kontak', 'block', item.account_id, item.peer_id, danger=not state.is_blocked, confirm=not state.is_blocked) }}
+          {{ menu_action('clear', 'Bersihkan obrolan', 'clear', item.account_id, item.peer_id, confirm=true) }}
+          {{ menu_action('delete', 'Hapus obrolan', 'delete', item.account_id, item.peer_id, danger=true, confirm=true) }}
+        </div>
+      </article>
+      {% else %}
+      <div class="empty-chat"><div><strong>Tidak ada percakapan</strong><p>Chat yang sesuai filter akan muncul di sini.</p></div></div>
+      {% endfor %}
+    </div>
+  </aside>
+
+  <section class="chat-pane" aria-label="Isi percakapan">
+    {% if selected %}
+    <header class="chat-head">
+      <a class="mobile-back" href="{{ back_url }}" aria-label="Kembali">‹</a>
+      <span class="avatar large">{{ selected.peer_name[:1] }}{% if selected.avatar_path != '-' %}<img src="/inbox/avatar/{{ selected.id }}" alt="" onerror="this.hidden=true">{% endif %}</span>
+      <div class="chat-person">
+        <div class="chat-name">{{ selected.peer_name }}{% if selected.is_favorite %}<span title="Favorit">★</span>{% endif %}</div>
+        <div class="chat-meta"><span>Terakhir pesan {{ selected.updated_at|jakarta_time('%d/%m %H:%M') }}</span><span class="route-label">· via {{ selected.account_label }}</span><span class="account-presence is-checking" data-account-status="{{ selected.account_id }}"><span class="live-mark"></span><span data-account-status-label>Memeriksa…</span></span></div>
+      </div>
+      <div class="chat-head-actions">
+        <button class="icon-button" type="button" id="chat-search-toggle" aria-label="Cari dalam chat"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></button>
+        <button class="icon-button" type="button" data-menu-toggle="chat-menu" aria-label="Menu percakapan" aria-expanded="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg></button>
+      </div>
+      <div class="popup-menu chat-menu" id="chat-menu" hidden>
+        {{ menu_action('unmute' if selected.is_muted else 'mute', 'Bunyikan notifikasi' if selected.is_muted else 'Bisukan notifikasi', 'unmute' if selected.is_muted else 'mute', selected.account_id, selected.peer_id) }}
+        {{ menu_action('unpin' if selected.is_pinned else 'pin', 'Lepas sematan' if selected.is_pinned else 'Sematkan chat', 'pin', selected.account_id, selected.peer_id) }}
+        {{ menu_action('unfavorite' if selected.is_favorite else 'favorite', 'Hapus dari favorit' if selected.is_favorite else 'Tambah ke favorit', 'favorite', selected.account_id, selected.peer_id) }}
+        {{ menu_action('unblock' if selected.is_blocked else 'block', 'Buka blokir' if selected.is_blocked else 'Blokir kontak', 'block', selected.account_id, selected.peer_id, danger=not selected.is_blocked, confirm=not selected.is_blocked) }}
+        <div class="menu-separator"></div>
+        {{ menu_action('clear', 'Bersihkan obrolan', 'clear', selected.account_id, selected.peer_id, confirm=true) }}
+        {{ menu_action('delete', 'Hapus obrolan', 'delete', selected.account_id, selected.peer_id, danger=true, confirm=true) }}
+      </div>
+    </header>
+    <div class="chat-search-bar" id="chat-search-bar"><input id="chat-search" type="search" placeholder="Cari pesan dalam percakapan…"><button class="icon-button" type="button" id="chat-search-close" aria-label="Tutup pencarian">×</button></div>
+    <div class="chat-messages" id="chat-messages">
+      {% for message in messages %}
+      <div class="chat-row {{ message.direction }}" data-message-text="{{ message.body }}">
+        <div class="chat-bubble">
+          {% if message.media_path and message.media_type and message.media_type.startswith('image/') %}<img class="message-media" src="/inbox/media/{{ message.id }}" alt="{{ message.media_name or 'Gambar' }}">
+          {% elif message.media_path and message.media_type and message.media_type.startswith('audio/') %}<audio class="message-media" controls src="/inbox/media/{{ message.id }}"></audio>
+          {% elif message.media_path %}<a class="file-message" href="/inbox/media/{{ message.id }}" target="_blank">📎 {{ message.media_name or 'Lampiran' }}</a>{% endif %}
+          <span class="message-text">{{ message.body }}</span>
+          <span class="bubble-meta">{% if message.is_starred %}<span title="Pesan berbintang">★</span>{% endif %}{{ message.created_at|jakarta_time('%H:%M') }}{% if message.direction == 'out' %}<span>✓✓</span>{% endif %}</span>
+          <form class="star-message-form {% if message.is_starred %}is-starred{% endif %}" method="post" action="/inbox/message/{{ message.id }}/star">
+            {{ fields(selected.account_id, selected.peer_id) }}
+            <button class="star-button" type="submit" aria-label="{% if message.is_starred %}Hapus bintang{% else %}Beri bintang{% endif %}">★</button>
+          </form>
+        </div>
+      </div>
+      {% else %}<div class="empty-chat"><div><strong>Obrolan masih kosong</strong><p>Kirim pesan baru tanpa perlu memilih ulang akun pengirim.</p></div></div>{% endfor %}
+    </div>
+
+    {% if selected.is_blocked %}<div class="composer-note blocked-note">Kontak ini diblokir. Buka blokir melalui menu untuk mengirim pesan.</div>
+    {% elif selected.is_archived %}<div class="composer-note">Kembalikan percakapan ke Inbox untuk membalas.</div>
+    {% else %}
+    <div class="composer">
+      <div class="attachment-preview" id="attachment-preview" hidden><span id="attachment-name"></span><button type="button" id="attachment-clear" aria-label="Hapus lampiran">×</button></div>
+      <form class="reply-form" method="post" action="/inbox/reply" enctype="multipart/form-data" id="reply-form">
+        {{ fields(selected.account_id, selected.peer_id) }}
+        <input type="hidden" name="voice_note" id="voice-note" value="false">
+        <input type="file" name="attachment" id="attachment-input" hidden>
+        <button class="icon-button composer-button" type="button" id="attachment-button" title="Lampirkan file" aria-label="Lampirkan file"><svg viewBox="0 0 24 24"><path d="m21.4 11.6-8.9 8.9a6 6 0 0 1-8.5-8.5l9.5-9.5a4 4 0 0 1 5.7 5.7l-9.6 9.6a2 2 0 0 1-2.8-2.8l8.9-8.9"></path></svg></button>
+        <button class="icon-button composer-button" type="button" id="emoji-button" title="Pilih emoji" aria-label="Pilih emoji"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"></path></svg></button>
+        <textarea name="body" rows="1" maxlength="4096" placeholder="Ketik pesan" aria-label="Pesan"></textarea>
+        <button class="icon-button composer-button" type="button" id="record-button" title="Rekam pesan suara" aria-label="Rekam pesan suara"><svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"></rect><path d="M5 10a7 7 0 0 0 14 0M12 17v4M9 21h6"></path></svg></button>
+        <button class="icon-button composer-button" type="submit" title="Kirim pesan" aria-label="Kirim pesan"><svg viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"></path><path d="M22 2 11 13"></path></svg></button>
+      </form>
+      <div class="emoji-panel" id="emoji-panel" hidden>{% for emoji in ['😀','😂','🥰','😍','😊','🙏','👍','🔥','❤️','🎉','✅','🤝','😎','🤔','😢','😅','💯','📌'] %}<button type="button">{{ emoji }}</button>{% endfor %}</div>
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="empty-chat"><div><strong>PorsLabs Inbox</strong><p>Pilih percakapan untuk membaca dan membalas melalui akun Telegram penerima.</p></div></div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const shell = document.getElementById('inbox-shell');
+const closeMenus = (except) => document.querySelectorAll('.popup-menu').forEach((menu) => {
+  if (menu !== except) {
+    menu.hidden = true;
+    document.querySelector(`[data-menu-toggle="${menu.id}"]`)?.setAttribute('aria-expanded', 'false');
+  }
+});
+document.querySelectorAll('[data-menu-toggle]').forEach((button) => button.addEventListener('click', (event) => {
+  event.stopPropagation();
+  const menu = document.getElementById(button.dataset.menuToggle);
+  const opening = menu.hidden;
+  closeMenus(menu);
+  menu.hidden = !opening;
+  if (opening && menu.classList.contains('conversation-menu')) {
+    const rect = button.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, rect.right - menu.offsetWidth)}px`;
+    menu.style.top = `${Math.max(8, Math.min(rect.top, innerHeight - menu.offsetHeight - 8))}px`;
+  }
+  document.querySelectorAll('[data-menu-toggle]').forEach((item) => item.setAttribute('aria-expanded', String(item === button && opening)));
+}));
+document.addEventListener('click', (event) => { if (!event.target.closest('.popup-menu')) closeMenus(); });
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeMenus(); });
+
+const conversationSearch = document.getElementById('conversation-search');
+conversationSearch?.addEventListener('input', () => {
+  const query = conversationSearch.value.trim().toLocaleLowerCase('id');
+  document.querySelectorAll('.conversation-item').forEach((item) => item.hidden = !item.dataset.search.toLocaleLowerCase('id').includes(query));
+});
+const filterChips = document.querySelector('.filter-chips');
+filterChips?.addEventListener('wheel', (event) => {
+  if (filterChips.scrollWidth <= filterChips.clientWidth || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+  event.preventDefault();
+  filterChips.scrollLeft += event.deltaY;
+}, { passive:false });
+
+const checkboxes = [...document.querySelectorAll('[name="conversation_keys"]')];
+document.getElementById('bulk-form')?.addEventListener('submit', (event) => {
+  if (event.submitter?.value === 'delete' && !confirm('Hapus semua percakapan terpilih secara permanen?')) event.preventDefault();
+});
+const bulkButtons = [...document.querySelectorAll('.bulk-toolbar button[type="submit"]')];
+const selectedCount = document.getElementById('selected-count');
+function updateSelection() {
+  const count = checkboxes.filter((item) => item.checked).length;
+  selectedCount.textContent = count;
+  bulkButtons.forEach((button) => button.disabled = !count);
+}
+document.getElementById('select-conversations')?.addEventListener('click', () => { shell.classList.add('selecting'); closeMenus(); });
+document.getElementById('cancel-selection')?.addEventListener('click', () => { shell.classList.remove('selecting'); checkboxes.forEach((item) => item.checked = false); updateSelection(); });
+checkboxes.forEach((item) => item.addEventListener('change', updateSelection));
+document.querySelectorAll('.conversation-link').forEach((link) => link.addEventListener('click', (event) => {
+  if (!shell.classList.contains('selecting')) return;
+  event.preventDefault();
+  const checkbox = link.closest('.conversation-item').querySelector('[name="conversation_keys"]');
+  checkbox.checked = !checkbox.checked;
+  checkbox.dispatchEvent(new Event('change', {bubbles:true}));
+}));
+
+document.querySelectorAll('.list-action').forEach((form) => form.addEventListener('submit', (event) => {
+  const label = prompt('Nama daftar (kosongkan untuk menghapus):', 'Pelanggan prioritas');
+  if (label === null) { event.preventDefault(); return; }
+  const input = document.createElement('input');
+  input.type = 'hidden'; input.name = 'list_label'; input.value = label; form.append(input);
+}));
+
+const chat = document.getElementById('chat-messages');
+if (chat) chat.scrollTop = chat.scrollHeight;
+const chatSearchBar = document.getElementById('chat-search-bar');
+const chatSearch = document.getElementById('chat-search');
+document.getElementById('chat-search-toggle')?.addEventListener('click', () => { chatSearchBar.classList.add('open'); chatSearch.focus(); });
+document.getElementById('chat-search-close')?.addEventListener('click', () => { chatSearchBar.classList.remove('open'); chatSearch.value = ''; document.querySelectorAll('.chat-row').forEach((row) => row.hidden = false); });
+chatSearch?.addEventListener('input', () => {
+  const query = chatSearch.value.trim().toLocaleLowerCase('id');
+  document.querySelectorAll('.chat-row').forEach((row) => row.hidden = !row.dataset.messageText.toLocaleLowerCase('id').includes(query));
+});
+
+const replyForm = document.getElementById('reply-form');
+const replyInput = replyForm?.querySelector('textarea');
+replyInput?.addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); replyForm.requestSubmit(); } });
+const emojiPanel = document.getElementById('emoji-panel');
+document.getElementById('emoji-button')?.addEventListener('click', () => emojiPanel.hidden = !emojiPanel.hidden);
+emojiPanel?.querySelectorAll('button').forEach((button) => button.addEventListener('click', () => {
+  replyInput.setRangeText(button.textContent, replyInput.selectionStart, replyInput.selectionEnd, 'end'); replyInput.focus();
+}));
+
+const attachmentInput = document.getElementById('attachment-input');
+const attachmentPreview = document.getElementById('attachment-preview');
+const attachmentName = document.getElementById('attachment-name');
+const voiceNote = document.getElementById('voice-note');
+function showAttachment(file) { attachmentName.textContent = file?.name || ''; attachmentPreview.hidden = !file; }
+document.getElementById('attachment-button')?.addEventListener('click', () => attachmentInput.click());
+attachmentInput?.addEventListener('change', () => { voiceNote.value = 'false'; showAttachment(attachmentInput.files[0]); });
+document.getElementById('attachment-clear')?.addEventListener('click', () => { attachmentInput.value = ''; voiceNote.value = 'false'; showAttachment(null); });
+
+const recordButton = document.getElementById('record-button');
+let recorder;
+let recordingStream;
+recordButton?.addEventListener('click', async () => {
+  if (recorder?.state === 'recording') { recorder.stop(); return; }
+  if (!navigator.mediaDevices || !window.MediaRecorder) { alert('Browser ini belum mendukung rekaman suara.'); return; }
+  try {
+    recordingStream = await navigator.mediaDevices.getUserMedia({ audio:true });
+    const chunks = [];
+    recorder = new MediaRecorder(recordingStream);
+    recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+    recorder.onstop = () => {
+      const file = new File(chunks, 'pesan-suara.webm', { type:recorder.mimeType || 'audio/webm' });
+      const transfer = new DataTransfer(); transfer.items.add(file); attachmentInput.files = transfer.files;
+      voiceNote.value = 'true'; showAttachment(file); recordButton.classList.remove('recording');
+      recordingStream.getTracks().forEach((track) => track.stop());
+    };
+    recorder.start(); recordButton.classList.add('recording');
+  } catch (_error) { alert('Izin mikrofon diperlukan untuk merekam pesan suara.'); }
+});
+
+const notificationButton = document.getElementById('enable-inbox-notifications');
+if (!notificationButton || !('Notification' in window) || Notification.permission === 'granted') { if (notificationButton) notificationButton.hidden = true; }
+else notificationButton.addEventListener('click', async () => notificationButton.hidden = await Notification.requestPermission() === 'granted');
+</script>
+{% endblock %}

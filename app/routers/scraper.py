@@ -15,8 +15,9 @@ from telethon.errors import FloodWaitError
 from telethon.sessions import StringSession
 from telethon.tl.types import Channel, Chat
 
+from app.auth import get_current_user, verify_csrf
 from app.database import get_db
-from app.models import TelegramAccount
+from app.models import TelegramAccount, User
 
 router = APIRouter()
 APP_DIR = Path(__file__).resolve().parents[1]
@@ -25,19 +26,38 @@ templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 # ─── In-memory job store (reset saat Railway restart, itu normal) ───────────
 _jobs: dict[str, dict] = {}
 _bg_tasks: set = set()   # cegah GC pada asyncio.create_task
+MAX_IN_MEMORY_JOBS = 20
 
 
 def _render(request, template, ctx):
     ctx["request"] = request
-    return templates.TemplateResponse(template, ctx)
+    return templates.TemplateResponse(request, template, ctx)
+
+
+def _prune_finished_jobs() -> None:
+    """Bound retained contact sets so a long-lived worker cannot grow forever."""
+    if len(_jobs) < MAX_IN_MEMORY_JOBS:
+        return
+    for old_job_id, old_job in list(_jobs.items()):
+        if old_job.get("status") != "running":
+            _jobs.pop(old_job_id, None)
+            if len(_jobs) < MAX_IN_MEMORY_JOBS:
+                break
 
 
 # ─── GET /scraper ────────────────────────────────────────────────────────────
 @router.get("/scraper", response_class=HTMLResponse)
-async def scraper_page(request: Request, db: Session = Depends(get_db)):
+async def scraper_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     accounts = (
         db.query(TelegramAccount)
-        .filter(TelegramAccount.is_active == 1)
+        .filter(
+            TelegramAccount.user_id == current_user.id,
+            TelegramAccount.is_active == 1,
+        )
         .order_by(TelegramAccount.created_at)
         .all()
     )
@@ -53,14 +73,26 @@ async def scraper_start(
     request: Request,
     account_id: int = Form(...),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _csrf: None = Depends(verify_csrf),
 ):
     accounts = (
         db.query(TelegramAccount)
-        .filter(TelegramAccount.is_active == 1)
+        .filter(
+            TelegramAccount.user_id == current_user.id,
+            TelegramAccount.is_active == 1,
+        )
         .order_by(TelegramAccount.created_at)
         .all()
     )
-    account = db.get(TelegramAccount, account_id)
+    account = (
+        db.query(TelegramAccount)
+        .filter(
+            TelegramAccount.id == account_id,
+            TelegramAccount.user_id == current_user.id,
+        )
+        .first()
+    )
 
     if not account or not account.session_str:
         return _render(request, "scraper.html", {
@@ -69,12 +101,14 @@ async def scraper_start(
             "error_message": "Akun tidak valid atau session kosong.",
         })
 
+    _prune_finished_jobs()
     job_id = uuid.uuid4().hex
     _jobs[job_id] = {
         "status": "running",
         "contacts": set(),
         "log": ["⏳ Menyambung ke Telegram..."],
         "total": 0,
+        "user_id": current_user.id,
     }
 
     # Jalankan scraping di background — tidak block HTTP response
@@ -100,9 +134,13 @@ async def scraper_start(
 # ─── Background scraping logic ───────────────────────────────────────────────
 async def _do_scrape(job_id: str, session_str: str, api_id: int, api_hash: str, label: str):
     job = _jobs[job_id]
+    client = None
     try:
         client = TelegramClient(StringSession(session_str), api_id, api_hash)
         await client.connect()
+
+        if not await client.is_user_authorized():
+            raise RuntimeError("Session Telegram sudah tidak valid; hubungkan ulang akun")
 
         job["log"].append(f"✅ Login sebagai {label}")
 
@@ -117,7 +155,9 @@ async def _do_scrape(job_id: str, session_str: str, api_id: int, api_hash: str, 
                 groups.append(d)
 
         job["log"].append(f"📂 {len(groups)} group ditemukan")
-        all_contacts: set[str] = set()
+        # Mutate the retained set directly. Copying the whole set for every
+        # participant made large scrapes increasingly slow and memory-heavy.
+        all_contacts: set[str] = job["contacts"]
 
         for dialog in groups:
             name = dialog.name or "Tanpa Nama"
@@ -137,8 +177,6 @@ async def _do_scrape(job_id: str, session_str: str, api_id: int, api_hash: str, 
                         all_contacts.add(phone)
                         count += 1
 
-                    # Update live setiap tambah kontak
-                    job["contacts"] = all_contacts.copy()
                     job["total"] = len(all_contacts)
 
             except FloodWaitError as e:
@@ -151,19 +189,21 @@ async def _do_scrape(job_id: str, session_str: str, api_id: int, api_hash: str, 
 
             job["log"].append(f"   └─ ✅ {count} kontak | total unik: {len(all_contacts)}")
 
-        await client.disconnect()
         job["status"] = "done"
         job["log"].append(f"🎉 Selesai! {len(all_contacts)} kontak unik terkumpul.")
 
     except Exception as e:
         job["status"] = "error"
         job["log"].append(f"❌ Error: {str(e)}")
+    finally:
+        if client and client.is_connected():
+            await client.disconnect()
 
 
 # ─── GET /api/scraper/{job_id}  (polling dari frontend) ─────────────────────
 @router.get("/api/scraper/{job_id}")
-def scraper_poll(job_id: str):
-    if job_id not in _jobs:
+def scraper_poll(job_id: str, current_user: User = Depends(get_current_user)):
+    if job_id not in _jobs or _jobs[job_id].get("user_id") != current_user.id:
         return JSONResponse({"error": "not_found"}, status_code=404)
     job = _jobs[job_id]
     return JSONResponse({
@@ -175,8 +215,8 @@ def scraper_poll(job_id: str):
 
 # ─── GET /scraper/download/{job_id}  (download TXT) ─────────────────────────
 @router.get("/scraper/download/{job_id}")
-def scraper_download(job_id: str):
-    if job_id not in _jobs:
+def scraper_download(job_id: str, current_user: User = Depends(get_current_user)):
+    if job_id not in _jobs or _jobs[job_id].get("user_id") != current_user.id:
         return PlainTextResponse("Job tidak ditemukan", status_code=404)
     job = _jobs[job_id]
     contacts = sorted(job.get("contacts", set()))

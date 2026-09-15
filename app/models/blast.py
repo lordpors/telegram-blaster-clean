@@ -21,13 +21,16 @@ class BlastJob(Base):
     __tablename__ = "blast_jobs"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     status = Column(String(20), nullable=False, default="queued", index=True)
     message = Column(Text, nullable=False)
     image_path = Column(String, nullable=True)
-    delay_seconds = Column(Integer, nullable=False, default=5)
+    delay_seconds = Column(Float, nullable=False, default=0)
     delay_max_seconds = Column(Float, nullable=True, default=None)
     accounts_json = Column(Text, nullable=False, default="[]")
     consent_confirmed = Column(Boolean, nullable=False, default=False)
+    source = Column(String(20), nullable=False, default="manual", index=True)
+    sheet_synced_at = Column(DateTime, nullable=True)
 
     total_count = Column(Integer, nullable=False, default=0)
     sent_count = Column(Integer, nullable=False, default=0)
@@ -58,6 +61,8 @@ class BlastRecipient(Base):
     id = Column(Integer, primary_key=True, index=True)
     job_id = Column(Integer, ForeignKey("blast_jobs.id", ondelete="CASCADE"), nullable=False, index=True)
     account_id = Column(Integer, ForeignKey("telegram_accounts.id", ondelete="SET NULL"), nullable=True, index=True)
+    sheet_item_id = Column(String(64), nullable=True, unique=True, index=True)
+    sheet_synced_at = Column(DateTime, nullable=True)
 
     username = Column(String(255), nullable=False)
     normalized_username = Column(String(255), nullable=False)

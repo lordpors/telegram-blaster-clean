@@ -1,41 +1,65 @@
 {% extends "base.html" %}
-{% block title %}Kirim Blast — MAMI GROUP{% endblock %}
+{% block title %}Blast — PorsLabs Telegram Blaster{% endblock %}
 {% block content %}
-<div class="flex-between" style="margin-bottom:20px;">
+<div class="flex-between page-head">
   <div>
-    <h2 style="font-size:1.35rem;">Buat & Pantau Job</h2>
-    <p class="muted small" style="margin-top:5px;">Pilih satu akun per tab, atau beberapa akun untuk membagi target secara bergiliran.</p>
+    <span class="eyebrow">PorsLabs Messaging</span>
+    <h1>Buat & Pantau <span class="gradient-text">Blast</span></h1>
+    <p>Pilih satu atau beberapa akun untuk membagi target secara bergiliran dalam workspace Anda.</p>
   </div>
   <a href="/dashboard" class="btn btn-gray">← Dashboard</a>
 </div>
 
 {% if error_message %}<div class="alert alert-error">{{ error_message }}</div>{% endif %}
 
-<div class="card">
-  <div class="card-title">Job Pengiriman Baru</div>
-  <form method="post" action="/send-blast" enctype="multipart/form-data" id="blast-form">
+<form method="post" action="/send-blast" enctype="multipart/form-data" id="blast-form">
+  <div class="card blast-account-card">
+    <div class="card-title">Job Pengiriman Baru</div>
+    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
     <div class="field">
-      <label>Akun Pengirim <span class="label-note">centang satu atau beberapa akun</span></label>
-      <div class="account-grid">
+      <div class="account-list-head">
+        <label>Akun Pengirim <span class="label-note">centang satu atau beberapa akun</span></label>
+        <input class="account-search" id="blast-account-search" type="search" placeholder="Cari nama atau nomor akun…" aria-label="Cari akun pengirim">
+      </div>
+      <div class="use-all-accounts-row">
+        <button class="btn btn-primary" type="button" id="use-all-accounts">Gunakan semua akun</button>
+        <span class="use-all-accounts-note" id="use-all-accounts-note">Akun aktif akan dipilih dan sisa antrean otomatis dialihkan jika satu akun dibatasi.</span>
+      </div>
+      <div class="account-grid" id="blast-account-grid">
         {% for acc in accounts %}
-        <label class="account-choice">
+        <label class="account-choice" data-account-search="{{ acc.label or '' }} {{ acc.phone }}" {% if loop.index > 12 %}hidden{% endif %}>
           <input type="checkbox" name="account_ids" value="{{ acc.id }}" {% if acc.id in selected_ids %}checked{% endif %}>
-          <strong>{{ acc.label or acc.phone }}</strong>
+          <span class="account-choice-title">
+            <strong>{{ acc.label or acc.phone }}</strong>
+            <span class="account-presence is-checking" data-account-status="{{ acc.id }}" aria-live="polite">
+              <span class="live-mark"></span><span data-account-status-label>Memeriksa…</span>
+            </span>
+          </span>
           <div class="muted small" style="margin-top:4px;">{{ acc.phone }}</div>
           <div class="small" style="color:#c4b5fd;margin-top:7px;">Antrean akun #{{ acc.id }}</div>
         </label>
         {% endfor %}
       </div>
+      {% if accounts|length > 12 %}
+      <div class="flex pagination-controls" id="blast-account-controls">
+        <button class="btn btn-outline" type="button" id="show-more-accounts">Lihat akun lainnya</button>
+        <button class="btn btn-outline" type="button" id="show-all-accounts">Lihat semua akun</button>
+        <button class="btn btn-gray" type="button" id="hide-accounts" hidden>Sembunyikan semua akun</button>
+      </div>
+      {% endif %}
       <div class="alert alert-info" style="margin-top:12px;margin-bottom:0;">
         Satu akun hanya menjalankan satu antrean pada satu waktu. Bila akun yang sama dipakai tab lain, job berikutnya otomatis menunggu—bukan menabrak proses yang sedang berjalan.
       </div>
     </div>
+  </div>
 
+  <div class="card">
+    <div class="card-title">Konten & Target Pesan</div>
     <div class="field">
       <label>Gambar <span class="label-note">opsional, maksimal 10 MB</span></label>
       <div class="upload-area" onclick="document.getElementById('img-input').click()">
         <input type="file" id="img-input" name="image" accept="image/jpeg,image/png,image/gif,image/webp" onchange="previewImage(this)" style="display:none">
-        <div class="upload-icon" style="font-size:2rem;margin-bottom:6px;"></div>
+        <div class="upload-icon" style="font-size:1.55rem;margin-bottom:6px;color:var(--primary-light);">＋</div>
         <div class="upload-text muted small">Klik untuk pilih JPG, PNG, GIF, atau WebP</div>
         <img class="upload-preview" src="" alt="preview">
       </div>
@@ -62,13 +86,13 @@
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         <div style="flex:1;min-width:140px;">
           <label style="font-size:.78rem;color:var(--muted);margin-bottom:5px;">Minimum (detik)</label>
-          <input type="number" name="delay_min" id="delay_min" min="0.1" step="0.1" value="5"
+          <input type="number" name="delay_min" id="delay_min" min="0" max="3600" step="0.1" value="0"
                  style="padding:9px 12px;" oninput="syncDelayMax()">
         </div>
         <div style="padding-top:18px;color:var(--muted);">—</div>
         <div style="flex:1;min-width:140px;">
           <label style="font-size:.78rem;color:var(--muted);margin-bottom:5px;">Maksimum (detik)</label>
-          <input type="number" name="delay_max" id="delay_max" min="0.1" step="0.1" value="5"
+          <input type="number" name="delay_max" id="delay_max" min="0" max="3600" step="0.1" value="0"
                  style="padding:9px 12px;">
         </div>
         <div style="padding-top:18px;">
@@ -81,26 +105,22 @@
       </div>
     </div>
 
-    <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid #343444;border-radius:9px;margin-bottom:16px;cursor:pointer;">
-      <input type="checkbox" name="consent_confirmed" value="true" required style="margin-top:3px;width:17px;height:17px;">
-      <span style="font-weight:500;color:#d6d6df;line-height:1.45;">Saya memastikan daftar ini berisi penerima yang mengizinkan pesan, dan saya tidak memakai alat ini untuk spam atau mengakali batas Telegram.</span>
-    </label>
-
     <button type="submit" class="btn btn-primary btn-block" id="submit-button">Mulai Job dan Tampilkan Status</button>
-  </form>
-</div>
+  </div>
+</form>
 
 {% if job %}
 <div class="card" id="job-card" data-job-id="{{ job.id }}">
   <div class="flex-between" style="margin-bottom:16px;">
     <div>
       <div class="card-title" style="margin-bottom:4px;">Status Job #{{ job.id }}</div>
-      <span id="job-status" class="badge badge-blue">{{ job.status }}</span>
+      <span id="job-status" class="badge {% if job.status in ('completed', 'partial', 'failed') %}badge-green{% else %}badge-orange{% endif %}">{% if job.status in ('completed', 'partial', 'failed') %}Selesai{% else %}Proses{% endif %}</span>
     </div>
     <div style="display:flex;gap:8px;align-items:center;">
       {% if job.status in ('running', 'queued') %}
       <form method="post" action="/stop-job/{{ job.id }}" style="margin:0;"
-            onsubmit="return confirm('Stop blast job #{{ job.id }}? Pesan yang sedang dikirim akan selesai, sisanya dijeda.')">
+            onsubmit="return confirm('Stop blast job #{{ job.id }}? Pesan yang sedang dikirim akan selesai, sisanya dihentikan.')">
+        <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
         <button class="btn btn-danger" type="submit">Stop Blast</button>
       </form>
       {% endif %}
@@ -111,7 +131,7 @@
   <div class="stats-grid" style="margin-bottom:16px;">
     <div class="stat"><div class="stat-label">Total</div><div class="stat-value" id="count-total">{{ job.total_count }}</div></div>
     <div class="stat"><div class="stat-label">Terkirim</div><div class="stat-value" id="count-sent" style="color:#86efac;">{{ job.sent_count }}</div></div>
-    <div class="stat"><div class="stat-label">Belum / Dijeda</div><div class="stat-value" id="count-pending" style="color:#fcd34d;">{{ job.pending_count }}</div></div>
+    <div class="stat"><div class="stat-label">Dalam proses</div><div class="stat-value" id="count-pending" style="color:#fcd34d;">{{ job.pending_count }}</div></div>
     <div class="stat"><div class="stat-label">Gagal / Dilewati</div><div class="stat-value" id="count-failed" style="color:#fca5a5;">{{ job.failed_count + job.skipped_count }}</div></div>
   </div>
 
@@ -127,7 +147,7 @@
           <td>{{ loop.index }}</td>
           <td><code>@{{ row.username }}</code></td>
           <td>{{ row.account.label if row.account and row.account.label else (row.account.phone if row.account else 'Akun dihapus') }}</td>
-          <td>{{ row.status }}</td>
+          <td>{% if row.status in ('pending', 'sending', 'paused') %}Proses{% elif row.status == 'sent' %}Terkirim{% elif row.status == 'failed' %}Gagal{% else %}Dilewati{% endif %}</td>
           <td class="muted small">{{ row.error or '—' }}</td>
         </tr>
       {% endfor %}
@@ -142,15 +162,19 @@
   {% if recent_jobs %}
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Job</th><th>Status</th><th>Total</th><th>Terkirim</th><th>Dibuat</th></tr></thead>
+      <thead><tr><th>Job</th><th>Dibuat</th><th>Status</th><th>Terkirim</th><th>Gagal</th><th>Dilewati</th></tr></thead>
       <tbody>
       {% for item in recent_jobs %}
         <tr>
           <td><a class="inline-link" href="/blast?job_id={{ item.id }}">#{{ item.id }}</a></td>
-          <td>{{ item.status }}</td>
-          <td>{{ item.total_count }}</td>
-          <td>{{ item.sent_count }}</td>
-          <td class="muted small">{{ item.created_at.strftime('%d %b %Y %H:%M:%S') if item.created_at else '—' }}</td>
+          <td class="muted small">{{ item.created_at|jakarta_time('%d %b %Y %H:%M:%S') }}</td>
+          <td>
+            {% if item.status in ('completed', 'partial', 'failed') %}<span class="badge badge-green">Selesai</span>
+            {% else %}<span class="badge badge-orange">Proses</span>{% endif %}
+          </td>
+          <td><strong style="color:#86efac;">{{ item.sent_count }}</strong> / {{ item.total_count }}</td>
+          <td style="color:#fca5a5;">{{ item.failed_count }}</td>
+          <td class="muted">{{ item.skipped_count }}</td>
         </tr>
       {% endfor %}
       </tbody>
@@ -180,24 +204,89 @@ if (form) {
   });
 }
 
+const accountChoices = Array.from(document.querySelectorAll('#blast-account-grid .account-choice'));
+const showMoreAccounts = document.getElementById('show-more-accounts');
+const showAllAccounts = document.getElementById('show-all-accounts');
+const hideAccounts = document.getElementById('hide-accounts');
+const accountSearch = document.getElementById('blast-account-search');
+const accountControls = document.getElementById('blast-account-controls');
+const useAllAccounts = document.getElementById('use-all-accounts');
+const useAllAccountsNote = document.getElementById('use-all-accounts-note');
+useAllAccounts?.addEventListener('click', async () => {
+  useAllAccounts.disabled = true;
+  useAllAccountsNote.textContent = 'Memeriksa akun yang aktif…';
+  try {
+    const response = await fetch('/api/inbox/unread', {cache:'no-store'});
+    if (!response.ok) throw new Error();
+    const connected = new Set((await response.json()).connected_account_ids || []);
+    let selectedCount = 0;
+    accountChoices.forEach((choice) => {
+      const checkbox = choice.querySelector('[name="account_ids"]');
+      checkbox.checked = connected.has(Number(checkbox.value));
+      if (checkbox.checked) selectedCount += 1;
+    });
+    useAllAccountsNote.textContent = selectedCount
+      ? `${selectedCount} akun aktif dipilih. Failover otomatis siap digunakan.`
+      : 'Tidak ada akun aktif. Hubungkan ulang akun Telegram terlebih dahulu.';
+  } catch (_error) {
+    useAllAccountsNote.textContent = 'Status akun gagal diperiksa. Coba tekan kembali.';
+  } finally {
+    useAllAccounts.disabled = false;
+  }
+});
+if (accountSearch) {
+  let visibleAccounts = 12;
+
+  function refreshAccounts() {
+    const query = accountSearch?.value.trim().toLocaleLowerCase('id') || '';
+    const matches = accountChoices.filter((choice) =>
+      choice.dataset.accountSearch.toLocaleLowerCase('id').includes(query)
+    );
+    accountChoices.forEach((choice) => { choice.hidden = true; });
+    matches.slice(0, visibleAccounts).forEach((choice) => { choice.hidden = false; });
+    const allShown = visibleAccounts >= matches.length;
+    if (accountControls) accountControls.hidden = matches.length <= 12;
+    if (showMoreAccounts) showMoreAccounts.hidden = allShown;
+    if (showAllAccounts) showAllAccounts.hidden = allShown;
+    if (hideAccounts) hideAccounts.hidden = !allShown;
+    return matches;
+  }
+
+  showMoreAccounts?.addEventListener('click', () => {
+    visibleAccounts = Math.min(visibleAccounts + 12, accountChoices.length);
+    refreshAccounts();
+  });
+  showAllAccounts?.addEventListener('click', () => {
+    visibleAccounts = accountChoices.length;
+    const matches = refreshAccounts();
+    requestAnimationFrame(() => matches.at(-1)?.scrollIntoView({block: 'end'}));
+  });
+  hideAccounts?.addEventListener('click', () => {
+    visibleAccounts = 12;
+    refreshAccounts();
+  });
+  accountSearch.addEventListener('input', () => {
+    visibleAccounts = 12;
+    refreshAccounts();
+  });
+}
+
 const jobCard = document.getElementById('job-card');
 if (jobCard) {
   const jobId = jobCard.dataset.jobId;
-  const terminal = new Set(['completed', 'partial', 'failed', 'paused']);
   let timer = null;
 
   function badgeClass(status) {
     if (status === 'completed') return 'badge badge-green';
     if (status === 'running') return 'badge badge-orange';
-    if (status === 'partial') return 'badge badge-purple';
-    if (status === 'failed') return 'badge badge-red';
-    if (status === 'paused') return 'badge badge-purple';
+    if (status === 'partial' || status === 'failed') return 'badge badge-green';
+    if (status === 'paused') return 'badge badge-orange';
     return 'badge badge-blue';
   }
 
   function recipientBadge(status, label) {
     const classes = {
-      sent:'badge-green', sending:'badge-orange', failed:'badge-red', skipped:'badge-gray', pending:'badge-blue', paused:'badge-purple'
+      sent:'badge-green', sending:'badge-orange', failed:'badge-red', skipped:'badge-gray', pending:'badge-orange', paused:'badge-orange'
     };
     return `<span class="badge ${classes[status] || 'badge-gray'}">${label}</span>`;
   }
@@ -219,11 +308,7 @@ if (jobCard) {
       const finished = data.sent + data.failed + data.skipped;
       const percent = data.total ? Math.round((finished / data.total) * 100) : 0;
       document.getElementById('progress-bar').style.width = `${percent}%`;
-      if (data.status === 'paused') {
-        document.getElementById('progress-text').textContent = `${finished} dari ${data.total} target selesai. Sisanya belum dikirim karena akun dibatasi atau diminta menunggu oleh Telegram.`;
-      } else {
-        document.getElementById('progress-text').textContent = `${finished} dari ${data.total} target selesai diproses (${percent}%).`;
-      }
+      document.getElementById('progress-text').textContent = `${finished} dari ${data.total} target selesai diproses (${percent}%).`;
 
       const tbody = document.getElementById('recipient-table');
       tbody.innerHTML = data.recipients.map((row, index) => `
@@ -235,12 +320,10 @@ if (jobCard) {
           <td class="muted small">${escapeHtml(row.error || '—')}</td>
         </tr>`).join('');
 
-      if (terminal.has(data.status) && timer) {
-        clearInterval(timer);
-        timer = null;
-      }
+      if (!data.terminal) timer = setTimeout(refreshJob, 3000);
     } catch (error) {
       document.getElementById('progress-text').textContent = `Gagal memperbarui status: ${error.message}`;
+      timer = setTimeout(refreshJob, 5000);
     }
   }
 
@@ -249,7 +332,6 @@ if (jobCard) {
   }
 
   refreshJob();
-  timer = setInterval(refreshJob, 1500);
 }
 </script>
 {% endblock %}

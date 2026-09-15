@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Fitur Spesial — PorsLabs Telegram Blaster{% endblock %}
+{% block content %}
+<div class="flex-between page-head">
+  <div>
+    <span class="eyebrow">Fitur Spesial</span>
+    <h1>Auto-reply <span class="gradient-text">Pelanggan</span></h1>
+    <p>Atur kapan setiap akun Telegram mengirim balasan otomatis kepada pelanggan.</p>
+  </div>
+  <span class="badge {% if current_user.auto_reply_enabled %}badge-green{% else %}badge-gray{% endif %}">
+    {% if current_user.auto_reply_enabled %}Aktif{% else %}Nonaktif{% endif %}
+  </span>
+</div>
+
+{% if notice == 'saved' %}<div class="alert alert-success">Pengaturan auto-reply berhasil disimpan.</div>{% endif %}
+{% if error == 'invalid_message' %}<div class="alert alert-error">Isi pesan wajib diisi saat fitur aktif dan maksimal 4.096 karakter.</div>{% endif %}
+
+<form method="post" action="/special/auto-reply" class="card">
+  <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+  <div class="card-title">Pengaturan auto-reply</div>
+
+  <label class="use-all-accounts-row">
+    <input type="checkbox" name="enabled" value="true" {% if current_user.auto_reply_enabled %}checked{% endif %}>
+    <span>
+      <strong>Aktifkan pada semua akun terhubung</strong><br>
+      <span class="use-all-accounts-note">Cooldown dihitung terpisah untuk setiap akun dan pelanggan.</span>
+    </span>
+  </label>
+
+  <div class="field">
+    <label for="auto-reply-message">Teks balasan otomatis</label>
+    <textarea id="auto-reply-message" name="message" maxlength="4096" placeholder="Terima kasih sudah menghubungi kami. Pesan Anda segera kami balas.">{{ current_user.auto_reply_message or '' }}</textarea>
+  </div>
+
+  <div class="field">
+    <label for="auto-reply-mode">Mode pengiriman</label>
+    <select id="auto-reply-mode" name="mode">
+      <option value="cooldown" {% if (current_user.auto_reply_mode or 'cooldown') == 'cooldown' %}selected{% endif %}>Dikirim satu kali, lalu tidak aktif selama 24 jam untuk pelanggan dan akun yang sama</option>
+      <option value="always" {% if current_user.auto_reply_mode == 'always' %}selected{% endif %}>Dikirim setiap kali pelanggan mengirim pesan</option>
+    </select>
+  </div>
+
+  <button class="btn btn-primary" type="submit">Simpan Pengaturan</button>
+</form>
+{% endblock %}

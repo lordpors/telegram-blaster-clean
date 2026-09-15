@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Scraper — MAMI GROUP{% endblock %}
+{% block title %}Scraper — PorsLabs Telegram Blaster{% endblock %}
 {% block content %}
 
-<div class="flex-between" style="margin-bottom:22px">
-  <h2 style="font-size:1.35rem;font-weight:800">Group Member Scraper</h2>
-  <span class="badge badge-purple">Pakai session akun yang sudah terhubung</span>
+<div class="flex-between page-head">
+  <div><span class="eyebrow">Scraper</span><h1>Group Member <span class="gradient-text">Scraper</span></h1><p>Gunakan salah satu akun di workspace Anda untuk mengumpulkan kontak dari grup yang dapat diakses.</p></div>
+  <span class="badge badge-purple">Memakai sesi akun terhubung</span>
 </div>
 
 {% if error_message %}
@@ -13,17 +13,18 @@
 
 {% if not accounts %}
 <div class="alert alert-warn">
-  Belum ada akun Telegram terhubung. 
+  Belum ada akun Telegram terhubung.
   <a href="/connect-telegram" class="inline-link">Hubungkan akun dulu</a>
 </div>
 {% else %}
 
 <!-- ─── FORM PILIH AKUN ───────────────────────────────────────────── -->
 <div class="card">
-  <div class="card-title">⚙️ Konfigurasi Scraper</div>
+  <div class="card-title">Konfigurasi Scraper</div>
   <form method="post" action="/scraper/start" id="scrapeForm">
+    <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
     <div class="field">
-      <label>Pilih Akun Telegram</label>
+      <label>Pilih Akun</label>
       <select name="account_id" required style="max-width:400px">
         {% for acc in accounts %}
         <option value="{{ acc.id }}"
@@ -77,7 +78,7 @@
               padding:14px 16px;font-family:'Courier New',monospace;font-size:.8rem;
               color:#c8c8d8;max-height:280px;overflow-y:auto;line-height:1.75;
               white-space:pre-wrap;word-break:break-word">
-    ⏳ Menginisialisasi...
+    Menginisialisasi...
   </div>
 
   <!-- Tombol download — muncul setelah selesai -->

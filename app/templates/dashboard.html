@@ -1,12 +1,13 @@
 {% extends "base.html" %}
-{% block title %}Dashboard — MAMI GROUP{% endblock %}
+{% block title %}Beranda — PorsLabs Telegram Blaster{% endblock %}
 {% block content %}
-<div class="flex-between" style="margin-bottom:20px;">
+<div class="flex-between page-head">
   <div>
-    <h2 style="font-size:1.45rem;">Dashboard Pengiriman</h2>
-    <p class="muted small" style="margin-top:5px;">Setiap akun memiliki antrean sendiri; job dari beberapa tab tidak lagi mengganti akun secara global.</p>
+    <span class="eyebrow">Workspace {{ current_user.name or current_user.email }}</span>
+    <h1>Dashboard <span class="gradient-text">Pengiriman</span></h1>
+    <p>Semua akun, antrean, scraper, dan riwayat di halaman ini hanya dimiliki oleh workspace Anda.</p>
   </div>
-  <a href="/connect-telegram" class="btn btn-primary">Tambah Akun</a>
+  <a href="/connect-telegram" class="btn btn-primary">＋ Tambah Akun</a>
 </div>
 
 {% if error == 'account_busy' %}
@@ -15,7 +16,7 @@
 
 <div class="card">
   <div class="flex-between" style="margin-bottom:14px;">
-    <div class="card-title" style="margin:0;">Total berhasil terkirim</div>
+    <div class="card-title" style="margin:0;">Ringkasan pesan terkirim</div>
     <span class="badge {% if running_jobs %}badge-orange{% else %}badge-green{% endif %}">{{ running_jobs }} job aktif</span>
   </div>
   <div class="stats-grid">
@@ -31,24 +32,29 @@
 <!-- ─── AKUN TERHUBUNG ─────────────────────────────────────────────────── -->
 <div class="card">
   <div class="flex-between" style="margin-bottom:14px;">
-    <div class="card-title" style="margin:0;">Akun Telegram Terhubung</div>
-    <div id="accounts-controls" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+    <div class="card-title" style="margin:0;">Akun Terhubung</div>
+    <input class="account-search" id="dashboard-account-search" type="search" placeholder="Cari nama atau nomor akun…" aria-label="Cari akun terhubung">
   </div>
   {% if accounts %}
   <div class="table-wrap">
     <table id="accounts-table">
-      <thead><tr><th>Label / Nomor</th><th>Status</th><th>Ditambahkan</th><th style="text-align:right;">Aksi</th></tr></thead>
+      <thead><tr><th class="account-col-label">Label / Nomor</th><th class="account-col-status">Status</th><th class="account-col-created">Ditambahkan</th><th class="account-col-actions" style="text-align:right;">Aksi</th></tr></thead>
       <tbody>
       {% for acc in accounts %}
-        <tr>
-          <td><strong>{{ acc.label or acc.phone }}</strong><div class="muted small">{{ acc.phone }}</div></td>
-          <td><span class="badge badge-green">● Terhubung</span></td>
-          <td class="muted small">{{ acc.created_at.strftime('%d %b %Y %H:%M') if acc.created_at else '—' }}</td>
-          <td>
+        <tr data-search="{{ acc.label or '' }} {{ acc.phone }}">
+          <td class="account-col-label"><strong>{{ acc.label or acc.phone }}</strong><div class="muted small">{{ acc.phone }}</div></td>
+          <td class="account-col-status">
+            <span class="account-presence is-checking" data-account-status="{{ acc.id }}" aria-live="polite">
+              <span class="live-mark"></span><span data-account-status-label>Memeriksa…</span>
+            </span>
+          </td>
+          <td class="account-col-created muted small">{{ acc.created_at|jakarta_time }}</td>
+          <td class="account-col-actions">
             <div class="flex" style="justify-content:flex-end;">
               <a href="/blast?account_id={{ acc.id }}" class="btn btn-outline" style="padding:7px 12px;font-size:.8rem;">Pakai</a>
               <form method="post" action="/delete-account/{{ acc.id }}" style="margin:0;" onsubmit="return confirm('Hapus akun {{ acc.phone }}? Session akan dihapus permanen.')">
-                <button class="btn btn-danger" style="padding:7px 12px;font-size:.8rem;">🗑</button>
+                <input type="hidden" name="csrf_token" value="{{ request.session.get('csrf_token', '') }}">
+                <button class="btn btn-danger" style="padding:7px 12px;font-size:.8rem;" aria-label="Hapus akun">Hapus</button>
               </form>
             </div>
           </td>
@@ -57,8 +63,9 @@
       </tbody>
     </table>
   </div>
+  <div class="flex pagination-controls" id="accounts-controls"></div>
   {% else %}
-  <div class="alert alert-warn">Belum ada akun. <a class="inline-link" href="/connect-telegram">Hubungkan akun Telegram</a> terlebih dahulu.</div>
+  <div class="alert alert-warn">Belum ada akun. <a class="inline-link" href="/connect-telegram">Hubungkan akun</a> terlebih dahulu.</div>
   {% endif %}
 </div>
 
@@ -76,13 +83,10 @@
       {% for job in recent_jobs %}
         <tr>
           <td><a class="inline-link" href="/blast?job_id={{ job.id }}">#{{ job.id }}</a></td>
-          <td class="muted small">{{ job.created_at.strftime('%d %b %Y %H:%M:%S') if job.created_at else '—' }}</td>
+          <td class="muted small">{{ job.created_at|jakarta_time('%d %b %Y %H:%M:%S') }}</td>
           <td>
-            {% if job.status == 'running' %}<span class="badge badge-orange">Sedang berjalan</span>
-            {% elif job.status == 'queued' %}<span class="badge badge-blue">Menunggu</span>
-            {% elif job.status == 'completed' %}<span class="badge badge-green">Selesai</span>
-            {% elif job.status == 'partial' %}<span class="badge badge-purple">Selesai sebagian</span>
-            {% else %}<span class="badge badge-red">Gagal</span>{% endif %}
+            {% if job.status in ('completed', 'partial', 'failed') %}<span class="badge badge-green">Selesai</span>
+            {% else %}<span class="badge badge-orange">Proses</span>{% endif %}
           </td>
           <td><strong style="color:#86efac;">{{ job.sent_count }}</strong> / {{ job.total_count }}</td>
           <td style="color:#fca5a5;">{{ job.failed_count }}</td>
@@ -101,40 +105,50 @@
 (function () {
   const PAGE = 6;
 
-  function initPagination(tableId, controlsId, labelSingle) {
+  function initPagination(tableId, controlsId, labelSingle, searchId) {
     const table  = document.getElementById(tableId);
     const ctrl   = document.getElementById(controlsId);
     if (!table || !ctrl) return;
 
     const rows = Array.from(table.querySelectorAll('tbody tr'));
-    if (rows.length <= PAGE) return; // ≤6 baris: tidak perlu tombol
-
+    const search = searchId ? document.getElementById(searchId) : null;
     let visible = PAGE;
 
-    // Sembunyikan baris di luar halaman pertama
-    rows.forEach((r, i) => { r.style.display = i < PAGE ? '' : 'none'; });
-
     function refresh() {
-      rows.forEach((r, i) => { r.style.display = i < visible ? '' : 'none'; });
-      const allShown = visible >= rows.length;
+      const query = search?.value.trim().toLocaleLowerCase('id') || '';
+      const matches = rows.filter((row) =>
+        (row.dataset.search || row.textContent).toLocaleLowerCase('id').includes(query)
+      );
+      rows.forEach((row) => { row.hidden = true; });
+      matches.slice(0, visible).forEach((row) => { row.hidden = false; });
+      const allShown = visible >= matches.length;
+      ctrl.hidden = matches.length <= PAGE;
       btnMore.style.display = allShown ? 'none' : 'inline-flex';
       btnAll.style.display  = allShown ? 'none' : 'inline-flex';
       btnHide.style.display = allShown ? 'inline-flex' : 'none';
+      return matches;
     }
 
     const btnMore = document.createElement('button');
+    btnMore.type = 'button';
     btnMore.className = 'btn btn-outline';
     btnMore.style.fontSize = '.8rem';
     btnMore.textContent = `Lihat ${labelSingle} lainnya`;
     btnMore.onclick = () => { visible = Math.min(visible + PAGE, rows.length); refresh(); };
 
     const btnAll = document.createElement('button');
+    btnAll.type = 'button';
     btnAll.className = 'btn btn-outline';
     btnAll.style.fontSize = '.8rem';
     btnAll.textContent = `Lihat semua ${labelSingle}`;
-    btnAll.onclick = () => { visible = rows.length; refresh(); };
+    btnAll.onclick = () => {
+      visible = rows.length;
+      const matches = refresh();
+      if (search) requestAnimationFrame(() => matches.at(-1)?.scrollIntoView({block: 'end'}));
+    };
 
     const btnHide = document.createElement('button');
+    btnHide.type = 'button';
     btnHide.className = 'btn btn-gray';
     btnHide.style.fontSize = '.8rem';
     btnHide.style.display = 'none';
@@ -144,9 +158,11 @@
     ctrl.appendChild(btnMore);
     ctrl.appendChild(btnAll);
     ctrl.appendChild(btnHide);
+    search?.addEventListener('input', () => { visible = PAGE; refresh(); });
+    refresh();
   }
 
-  initPagination('accounts-table', 'accounts-controls', 'akun');
+  initPagination('accounts-table', 'accounts-controls', 'akun', 'dashboard-account-search');
   initPagination('jobs-table',     'jobs-controls',     'job');
 })();
 </script>
